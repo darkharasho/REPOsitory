@@ -1,0 +1,28 @@
+name: Build UpgradeLimiter
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "mods/upgrade-limiter/**"
+      - ".github/workflows/build-upgrade-limiter.yml"
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "mods/upgrade-limiter/**"
+      - ".github/workflows/build-upgrade-limiter.yml"
+
+jobs:
+  build:
+    runs-on: self-hosted
+    defaults:
+      run:
+        working-directory: mods/upgrade-limiter
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: |
+          dotnet build UpgradeLimiter.csproj \
+            --configuration Release \
+            /p:GameDir="/var/mnt/data/SteamLibrary/steamapps/common/REPO/"
