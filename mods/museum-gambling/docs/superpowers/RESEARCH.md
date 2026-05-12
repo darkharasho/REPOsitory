@@ -72,6 +72,57 @@ the prop; it reads the latest grabber via `grabArea.GetLatestGrabber()`, stores 
 - Spawn position for the money bag: `__instance.transform.position` (the `HurtCollider`
   GameObject) or `__instance.GetComponentInParent<MuseumPropMoneyHead>().transform.position`.
 
+## State sync verification (for Approach A)
+
+**State field:** `MuseumPropMoneyHead.state` of type `State` (a public `enum State` defined in the same class with values Open, Closing, Closed, Opening, OpenCoolingDown, OpenEvilEyes, OpenDraggingInPlayer)
+
+**How state is propagated to clients:**
+- [x] Via PunRPC named `StateSetRPC` called by master after state assignment — `StateSet(State _newState)` checks `SemiFunc.IsMasterClient()` then calls `photonView.RPC("StateSetRPC", RpcTarget.All, (int)_newState)`. `StateSetRPC` is decorated `[PunRPC]`, is validated with `SemiFunc.MasterOnlyRPC(_info)` to reject spoofed RPCs, and sets `stateStart = true; state = (State)_newState; stateTimer = 0f` on every client including master.
+- [ ] Via PhotonView observed serialization (`OnPhotonSerializeView` writes `currentState`)
+- [ ] Direct master-only assignment, clients run a different code path
+- [ ] Other
+
+**Is `hurtCollider.SetActive(true)` called by all clients in StateClosed, or master-only?** ALL clients
+
+The `stateStart` block in `StateClosed()` contains no `IsMasterClient` guard:
+
+```csharp
+private void StateClosed()
+{
+    if (stateStart)
+    {
+        stateStart = false;
+        stateTimer = 0f;
+        stateTimerMax = 3f;
+        evilEyes.SetActive(value: false);
+        grunkaMaterial.SetColor("_EmissionColor", Color.black);
+        lowPassWalls.SetActive(value: true);
+        spotLight.enabled = false;
+        hurtCollider.SetActive(value: true);   // <-- ALL clients run this
+    }
+    // ... per-frame update continues
+}
+```
+
+Every client runs `StateMachine()` → `StateClosed()` in their own `Update()`. When master sends `StateSetRPC(State.Closed)` to all clients, each client independently enters `StateClosed()` with `stateStart == true` (set by the RPC) and executes the full stateStart block, including `hurtCollider.SetActive(value: true)`. There is no master-only gate around the SetActive call.
+
+**Verdict on Approach A:**
+- [ ] ✅ Confirmed: if master skips `hurtCollider.SetActive(true)` in StateClosed (or deactivates it right after), clients will also not have the collider active for that cycle.
+- [x] ⚠️ Conditional: the state syncs but the hurtCollider toggle is local to each client's StateClosed block — so master must broadcast its skip-decision via RPC.
+- [ ] ❌ Broken: state is local-only, each client transitions through StateClosed independently. Need Approach B.
+
+State IS synced — `StateSetRPC` propagates `State.Closed` to all clients and they all enter `StateClosed()`. However, since each client runs `hurtCollider.SetActive(true)` locally in their own stateStart block, master suppressing its own SetActive does NOT prevent remote clients from arming their local hurtCollider. The existing plan to patch `HurtCollider.PlayerHurt` (from Task 0.1 research) already handles this correctly: that patch runs on each client for their own player (`if (!_player.photonView.IsMine) return`), so intercepting `PlayerHurt` on every client is the right layer — no additional broadcast RPC needed for the skip decision.
+
+**Where the win-roll postfix should live:**
+
+The win-roll decision must be made ONCE per StateClosed entry, not per-frame. The correct target for a postfix that fires once-per-cycle is the state-transition entry point:
+
+- `[HarmonyPatch(typeof(MuseumPropMoneyHead), "StateSetRPC")]` as a postfix, checking `(State)_newState == State.Closed && SemiFunc.IsMasterClient()` — this fires exactly once per closed-cycle on master.
+
+Alternatively, patch `StateClosed()` itself with a postfix that checks `__instance.stateStart` BEFORE it's cleared (requires a prefix that snapshots the flag), but that is more complex. The `StateSetRPC` postfix is cleaner: it fires once per state transition, not once per frame, and is naturally master-only by convention (non-master clients also receive the RPC and execute StateSetRPC, so the `IsMasterClient()` guard inside the postfix is required).
+
+Note: `stateStart` is a private field (`private bool stateStart`), so accessing it from a postfix requires `Traverse` or `AccessTools.Field`.
+
 ## Acceptance check
 
 Confirmed all of the following:
