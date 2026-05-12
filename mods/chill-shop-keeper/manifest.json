@@ -1,8 +1,8 @@
 {
     "name": "ChillShopKeeper",
-    "version_number": "0.2.0",
+    "version_number": "0.2.1",
     "website_url": "https://github.com/darkharasho/REPOsitory",
-    "description": "mod that adds configs to exempt the host from the shop guardian bot's punishment, and to globally disable the bot's punishment for all players regardless of the in-shop toggle",
+    "description": "Stops the ShopKeeper from punishing ruckus. Per-player exemptions plus a global kill-switch.",
     "dependencies": [
         "BepInEx-BepInExPack-5.4.2100"
     ]
