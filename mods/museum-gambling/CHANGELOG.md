@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.1.1
+- New icon.
+
 ## 0.1.0
 - Initial release.
 - Gamble the Museum Head: clicking it has a configurable percent chance to spawn a money-bag valuable instead of dealing the head's normal damage.
