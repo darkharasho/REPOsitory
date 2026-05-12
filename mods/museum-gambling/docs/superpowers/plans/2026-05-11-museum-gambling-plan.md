@@ -4,7 +4,7 @@
 
 **Goal:** Build a BepInEx 5 R.E.P.O. mod where clicking the Museum Head triggers a host-authoritative roll — by default 5% of the time a 50,000-value money-bag valuable spawns instead of the head dealing its normal damage.
 
-**Architecture:** A single Harmony prefix on the `MuseumPropMoneyHead` damage call. On host (or singleplayer) the prefix rolls; on a win it suppresses the damage and spawns a money-bag valuable at the head's position; on a loss it returns `true` so vanilla damage runs. No Photon room-property sync — host config decides everything. Pure logic (the win/lose decision) is unit-tested; patches are integration-tested manually.
+**Architecture (v2 — revised after Phase 0):** Two Harmony patches. (1) Postfix on `MuseumPropMoneyHead.StateSetRPC` — when transitioning to `Closed`, the master client rolls, then broadcasts the win/loss result to all clients via `PhotonNetwork.RaiseEvent` (custom event code 199, payload = `{viewId, win}`). (2) Prefix on `HurtCollider.PlayerHurt` — each client consults the pending result (keyed by the parent `MuseumPropMoneyHead`'s view ID); on win it returns `false` to suppress damage. Master also spawns the money-bag valuable on win. Pure win/lose logic is unit-tested; patches are integration-tested manually.
 
 **Tech Stack:** netstandard2.1, BepInEx 5.4.21, HarmonyX (via `BepInEx.Core`), C# `Nullable enable`, xUnit 2.6.6 on net6.0 for tests.
 
@@ -19,11 +19,13 @@ After this plan completes, the mod tree will look like:
 ```
 mods/museum-gambling/
   src/
-    Plugin.cs                              # BepInEx entry, config binding, Harmony.PatchAll
+    Plugin.cs                              # BepInEx entry, config binding, WinBroadcast.Register, Harmony.PatchAll
     Outcome.cs                             # Pure static helper: ShouldWin(roll, winChancePercent)
+    WinBroadcast.cs                        # Master→all-clients win-result broadcast via PhotonNetwork.RaiseEvent
     Payout.cs                              # Spawns the money-bag valuable, host-side
     Patches/
-      MuseumHeadPatches.cs                 # Harmony prefix on the head's damage method
+      MuseumHeadPatches.cs                 # Postfix on MuseumPropMoneyHead.StateSetRPC (master roll + broadcast)
+      HurtColliderPatches.cs               # Prefix on HurtCollider.PlayerHurt (suppress damage on win)
   tests/
     MuseumGambling.Tests/
       MuseumGambling.Tests.csproj          # xUnit on net6.0, references main csproj
@@ -31,21 +33,22 @@ mods/museum-gambling/
   .research/                               # GITIGNORED — decompiled C# scratch
     MuseumPropMoneyHead.cs
     Valuables.cs
-    NOTES.md                               # Resolved patch target + spawn API
+  docs/superpowers/RESEARCH.md             # Committed — resolved patch targets + spawn API
   manifest.json                            # existing (version bumps live here)
   MuseumGambling.csproj                    # existing
-  package.sh                                # existing
+  package.sh                               # existing
   README.md                                # gets a Config section update in Phase 5
   CHANGELOG.md                             # gets the 0.1.0 entry in Phase 5
-  .gitignore                               # add `.research/`
-  src/Plugin.cs                            # currently a no-op skeleton, grown in Phase 2
+  .gitignore                               # already has `.research/`
 ```
 
 **Responsibility split:**
 - `Outcome.cs` — pure logic only, no Unity/BepInEx refs. Unit-testable without the game.
-- `Payout.cs` — all game-side spawn API knowledge. Easy to swap if the API changes.
-- `Patches/MuseumHeadPatches.cs` — wiring only. Decides host vs client, rolls, calls into `Outcome` and `Payout`.
-- `Plugin.cs` — config binding + Harmony lifecycle. All static config refs live here as `internal static`, matching `mods/chill-shop-keeper/src/Plugin.cs`.
+- `WinBroadcast.cs` — all Photon-event knowledge. Encapsulates `RaiseEvent` send, subscriber registration, the per-view pending map, and the consume-once semantics.
+- `Payout.cs` — all game-side valuable-spawn API knowledge. Easy to swap if the API changes.
+- `Patches/MuseumHeadPatches.cs` — wiring only. Master gate, roll, calls into `WinBroadcast.Send` and `Payout.Spawn`.
+- `Patches/HurtColliderPatches.cs` — wiring only. Resolves parent head, consults `WinBroadcast.ConsumePendingResult`, returns false on win.
+- `Plugin.cs` — config binding, `WinBroadcast.Register()`, Harmony lifecycle. All static config refs live here as `internal static`, matching `mods/chill-shop-keeper/src/Plugin.cs`.
 
 ---
 
@@ -540,67 +543,83 @@ git commit -m "Bind Enabled/WinChancePercent/PayoutValue config"
 
 ## Phase 3 — Patch wiring (no payout yet)
 
-### Task 3.1: Write the Harmony prefix (log-only on win)
+### Task 3.1: WinBroadcast (RaiseEvent send/receive)
 
 **Files:**
-- Create: `mods/museum-gambling/src/Patches/MuseumHeadPatches.cs`
+- Create: `mods/museum-gambling/src/WinBroadcast.cs`
 
-Use the exact patch target identified in `docs/superpowers/RESEARCH.md` from Phase 0. The example below uses `<DamageMethod>` as a placeholder — **replace with the real method name before pasting**.
+The win result is broadcast from master to all clients (including master via `ReceiverGroup.All` for symmetry). Each client's prefix on `HurtCollider.PlayerHurt` consumes the result.
 
-- [ ] **Step 1: Write the prefix**
-
-`mods/museum-gambling/src/Patches/MuseumHeadPatches.cs`:
+- [ ] **Step 1: Write `WinBroadcast.cs`**
 
 ```csharp
-using System;
-using HarmonyLib;
+using System.Collections.Generic;
+using ExitGames.Client.Photon;
 using Photon.Pun;
-using UnityEngine;
+using Photon.Realtime;
 
-namespace MuseumGambling.Patches;
+namespace MuseumGambling;
 
-[HarmonyPatch(typeof(MuseumPropMoneyHead), "<DamageMethod>")] // <-- FILL FROM RESEARCH.md
-internal static class MuseumPropMoneyHead_DamageMethod_Prefix
+internal static class WinBroadcast
 {
-    private static bool Prefix(MuseumPropMoneyHead __instance)
+    // Photon reserves event codes 200+ for engine use; user codes are 0..199.
+    internal const byte EventCode = 199;
+
+    private static readonly Dictionary<int, bool> _pending = new();
+    private static bool _registered;
+
+    internal static void Register()
     {
-        try
+        if (_registered) return;
+        PhotonNetwork.NetworkingClient.EventReceived += OnEventReceived;
+        _registered = true;
+    }
+
+    internal static void Send(int viewId, bool win)
+    {
+        // Always apply locally first so singleplayer (no room) and master itself see the result.
+        _pending[viewId] = win;
+
+        if (!PhotonNetwork.InRoom) return;
+
+        var payload = new object[] { viewId, win };
+        var options = new RaiseEventOptions { Receivers = ReceiverGroup.Others };
+        PhotonNetwork.RaiseEvent(EventCode, payload, options, SendOptions.SendReliable);
+    }
+
+    internal static bool ConsumePendingResult(int viewId)
+    {
+        if (_pending.TryGetValue(viewId, out var win))
         {
-            // Defer to host. In singleplayer InRoom is false → we proceed.
-            if (PhotonNetwork.InRoom && !PhotonNetwork.IsMasterClient)
-                return true;
-
-            if (!Plugin.Enabled.Value)
-                return true;
-
-            int roll = UnityEngine.Random.Range(1, 101); // 1..100 inclusive
-            int chance = Plugin.WinChancePercent.Value;
-            bool win = Outcome.ShouldWin(roll, chance);
-
-            Plugin.Log.LogInfo(
-                $"[MuseumGambling] roll={roll} chance={chance} win={win}");
-
-            if (win)
-            {
-                // Phase 3: log only. Payout wired in Phase 4.
-                Plugin.Log.LogInfo("[MuseumGambling] WIN — damage suppressed (no payout yet).");
-                return false; // skip vanilla damage
-            }
-
-            return true; // loss → vanilla damage runs
+            _pending.Remove(viewId);
+            return win;
         }
-        catch (Exception ex)
-        {
-            Plugin.Log.LogError($"MuseumHead prefix failed: {ex}");
-            return true; // fail open
-        }
+        return false;
+    }
+
+    private static void OnEventReceived(EventData ev)
+    {
+        if (ev.Code != EventCode) return;
+        if (ev.CustomData is not object[] data || data.Length < 2) return;
+
+        int viewId = (int)data[0];
+        bool win = (bool)data[1];
+        _pending[viewId] = win;
     }
 }
 ```
 
-If the RESEARCH.md notes say the clicking `PlayerAvatar` is reachable via `__args` or a field, the prefix signature changes — but for Phase 3 we don't need the player reference (we just suppress the damage; vanilla never runs so the player is never hurt). Add the `PlayerAvatar` parameter in Phase 4 only if `Payout.Spawn` needs it for positioning (it shouldn't — position comes from `__instance.transform`).
+Note: `Receivers = ReceiverGroup.Others` (not `All`) because `Send` already writes to `_pending` locally — sending to `All` would race / double-write on master.
 
-- [ ] **Step 2: Build**
+- [ ] **Step 2: Hook `WinBroadcast.Register()` into Plugin.Awake**
+
+Edit `mods/museum-gambling/src/Plugin.cs` — inside `Awake`, before `harmony.PatchAll()`:
+
+```csharp
+WinBroadcast.Register();
+```
+
+- [ ] **Step 3: Build**
 
 ```bash
 cd mods/museum-gambling
@@ -608,9 +627,126 @@ dotnet build MuseumGambling.csproj --configuration Release \
   /p:GameDir=/var/mnt/data/SteamLibrary/steamapps/common/REPO/
 ```
 
-Expected: clean build.
+Expected: clean build. If `ExitGames.Client.Photon` is missing, add a `<Reference>` to `$(ManagedDir)/Photon3Unity3D.dll` (it's already in the csproj).
 
-- [ ] **Step 3: Deploy + manual smoke test (always-win)**
+- [ ] **Step 4: Commit**
+
+```bash
+git add mods/museum-gambling/src/WinBroadcast.cs \
+        mods/museum-gambling/src/Plugin.cs
+git commit -m "WinBroadcast: master->clients win-result via RaiseEvent"
+```
+
+### Task 3.2: Harmony patches (StateSetRPC + PlayerHurt)
+
+**Files:**
+- Create: `mods/museum-gambling/src/Patches/MuseumHeadPatches.cs`
+- Create: `mods/museum-gambling/src/Patches/HurtColliderPatches.cs`
+
+- [ ] **Step 1: Write `MuseumHeadPatches.cs`**
+
+This is the master-side roll. Postfix on `StateSetRPC`. The signature from RESEARCH.md is `void StateSetRPC(byte _newState, PhotonMessageInfo _info)`.
+
+```csharp
+using System;
+using HarmonyLib;
+using Photon.Pun;
+
+namespace MuseumGambling.Patches;
+
+[HarmonyPatch(typeof(MuseumPropMoneyHead), "StateSetRPC")]
+internal static class MuseumPropMoneyHead_StateSetRPC_Postfix
+{
+    private static void Postfix(MuseumPropMoneyHead __instance, byte _newState)
+    {
+        try
+        {
+            if ((MuseumPropMoneyHead.State)_newState != MuseumPropMoneyHead.State.Closed)
+                return;
+
+            if (!Plugin.Enabled.Value)
+                return;
+
+            // Master-only roll. In singleplayer (no room), IsMasterClient is true by default.
+            if (PhotonNetwork.InRoom && !PhotonNetwork.IsMasterClient)
+                return;
+
+            int roll = UnityEngine.Random.Range(1, 101); // 1..100 inclusive
+            int chance = Plugin.WinChancePercent.Value;
+            bool win = Outcome.ShouldWin(roll, chance);
+
+            int viewId = __instance.GetComponent<PhotonView>()?.ViewID ?? 0;
+            Plugin.Log.LogInfo(
+                $"[MuseumGambling] viewId={viewId} roll={roll} chance={chance} win={win}");
+
+            WinBroadcast.Send(viewId, win);
+
+            if (win)
+            {
+                // Phase 3: log only. Payout.Spawn wired in Phase 4.
+                Plugin.Log.LogInfo("[MuseumGambling] WIN — pending damage suppression (no payout yet).");
+            }
+        }
+        catch (Exception ex)
+        {
+            Plugin.Log.LogError($"MuseumPropMoneyHead.StateSetRPC postfix failed: {ex}");
+        }
+    }
+}
+```
+
+Note: `MuseumPropMoneyHead.State` is a nested enum on the class (per Task 0.1 decomp: `Open, Closing, Closed, Opening, ...`). If it's `private`/`internal` it may need `(MuseumPropMoneyHead.State)` to cast — but it's defined as `public enum State` per decomp output, so direct reference works.
+
+- [ ] **Step 2: Write `HurtColliderPatches.cs`**
+
+```csharp
+using System;
+using HarmonyLib;
+using UnityEngine;
+
+namespace MuseumGambling.Patches;
+
+[HarmonyPatch(typeof(HurtCollider), "PlayerHurt")]
+internal static class HurtCollider_PlayerHurt_Prefix
+{
+    private static bool Prefix(HurtCollider __instance)
+    {
+        try
+        {
+            var head = __instance.GetComponentInParent<MuseumPropMoneyHead>();
+            if (head == null) return true; // not a museum-head hurtcollider — leave alone
+
+            int viewId = head.GetComponent<PhotonView>()?.ViewID ?? 0;
+            bool win = WinBroadcast.ConsumePendingResult(viewId);
+
+            if (win)
+            {
+                Plugin.Log.LogInfo($"[MuseumGambling] Damage suppressed for view {viewId}.");
+                return false; // skip vanilla damage
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Plugin.Log.LogError($"HurtCollider.PlayerHurt prefix failed: {ex}");
+            return true; // fail open
+        }
+    }
+}
+```
+
+- [ ] **Step 3: Build**
+
+```bash
+cd mods/museum-gambling
+dotnet build MuseumGambling.csproj --configuration Release \
+  /p:GameDir=/var/mnt/data/SteamLibrary/steamapps/common/REPO/
+```
+
+Expected: clean build with 0 errors. If `MuseumPropMoneyHead.State.Closed` doesn't resolve, fall back to comparing `_newState` against the integer value documented in RESEARCH.md.
+
+- [ ] **Step 4: Deploy + manual smoke test (always-win)**
 
 ```bash
 cp mods/museum-gambling/bin/Release/netstandard2.1/MuseumGambling.dll \
@@ -623,43 +759,40 @@ Edit the config file:
 WinChancePercent = 100
 ```
 
-Ask the user to:
-1. Host a lobby (singleplayer is fine for testing).
-2. Get to the Museum.
-3. Click the Money Head once.
-4. Quit.
+Ask the user to: host a lobby (singleplayer is fine), reach the Museum, click the Money Head once, quit.
 
-Then check the BepInEx log:
+Then:
 
 ```bash
-tail -50 "$HOME/.config/r2modmanPlus-local/REPO/profiles/Default/BepInEx/LogOutput.log" \
+tail -100 "$HOME/.config/r2modmanPlus-local/REPO/profiles/Default/BepInEx/LogOutput.log" \
   | grep -i MuseumGambling
 ```
 
-Expected lines:
+Expected lines (order may vary slightly):
 ```
-[Info   :MuseumGambling] [MuseumGambling] roll=N chance=100 win=True
-[Info   :MuseumGambling] [MuseumGambling] WIN — damage suppressed (no payout yet).
+[Info   :MuseumGambling] [MuseumGambling] viewId=N roll=M chance=100 win=True
+[Info   :MuseumGambling] [MuseumGambling] WIN — pending damage suppression (no payout yet).
+[Info   :MuseumGambling] [MuseumGambling] Damage suppressed for view N.
 ```
 
-Acceptance: the player's health did NOT drop after clicking the head.
+Acceptance: the player's health did NOT drop after the suck-in completed.
 
-- [ ] **Step 4: Manual smoke test (never-win)**
+- [ ] **Step 5: Manual smoke test (never-win)**
 
 Set `WinChancePercent = 0`. Repeat the click test.
 
 Expected log:
 ```
-[Info   :MuseumGambling] [MuseumGambling] roll=N chance=0 win=False
+[Info   :MuseumGambling] [MuseumGambling] viewId=N roll=M chance=0 win=False
 ```
 
-Acceptance: vanilla damage occurred (player health dropped by ~100).
+Acceptance: vanilla damage occurred (~100 hp lost), and there is NO "Damage suppressed" line.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add mods/museum-gambling/src/Patches/MuseumHeadPatches.cs
-git commit -m "Harmony prefix on Museum Head damage step (log-only on win)"
+git add mods/museum-gambling/src/Patches/
+git commit -m "Patches: master roll on StateSetRPC + client damage suppress on PlayerHurt"
 ```
 
 ---
@@ -719,20 +852,17 @@ dotnet build MuseumGambling.csproj --configuration Release \
 
 Expected: clean build. If the real spawn API references a type that's not in any of the DLLs the csproj already references, add the missing `<Reference>` to the csproj — copy the pattern from the existing `Assembly-CSharp` reference.
 
-- [ ] **Step 3: Wire `Payout.Spawn` into the prefix**
+- [ ] **Step 3: Wire `Payout.Spawn` into the StateSetRPC postfix**
 
-Edit `mods/museum-gambling/src/Patches/MuseumHeadPatches.cs` — in the `if (win)` branch, before `return false`:
+Edit `mods/museum-gambling/src/Patches/MuseumHeadPatches.cs` — in the `if (win)` branch, replace the log-only line with a real spawn call:
 
 ```csharp
 if (win)
 {
-    Plugin.Log.LogInfo("[MuseumGambling] WIN — spawning money bag.");
+    Plugin.Log.LogInfo($"[MuseumGambling] WIN — spawning {Plugin.PayoutValue.Value} bag at {__instance.transform.position}.");
     Payout.Spawn(__instance.transform.position, Plugin.PayoutValue.Value);
-    return false;
 }
 ```
-
-Remove the old "no payout yet" log line.
 
 - [ ] **Step 4: Build + deploy**
 

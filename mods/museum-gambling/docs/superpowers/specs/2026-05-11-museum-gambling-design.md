@@ -1,7 +1,7 @@
 # MuseumGambling — Design
 
 **Date:** 2026-05-11
-**Status:** Approved for planning
+**Status:** Approved for planning. Revised 2026-05-11 (v2) after Phase 0 research — see "Revision history" at the bottom.
 **Scaffold:** `mods/museum-gambling/`
 
 ## One-liner
@@ -36,17 +36,41 @@ BepInEx entrypoint. Mirrors the shape of `mods/chill-shop-keeper/src/Plugin.cs`:
 
 ### `Patches/MuseumHeadPatches.cs`
 
-Harmony **prefix** on the `MuseumPropMoneyHead` method that applies damage to the clicking player at the end of the suck-in. (Exact method name resolved during implementation — see Research notes.)
+Harmony **postfix** on `MuseumPropMoneyHead.StateSetRPC(byte _newState, PhotonMessageInfo _info)`. This RPC runs on all clients when the state machine transitions. Logic:
 
-Prefix logic:
+1. If `(State)_newState != State.Closed` → return (only the Closed transition is the gamble moment).
+2. If `!Plugin.Enabled.Value` → return (kill-switch).
+3. If not master client (`!SemiFunc.IsMasterClient()` or equivalent) → return (only master decides outcomes).
+4. Compute `roll = UnityEngine.Random.Range(1, 101)`.
+5. Call `Outcome.ShouldWin(roll, Plugin.WinChancePercent.Value)`.
+6. Call `WinBroadcast.Send(__instance.photonView.ViewID, win)` — broadcasts the result to every client (including master).
+7. If win → call `Payout.Spawn(__instance.transform.position, Plugin.PayoutValue.Value)`.
+8. Wrap in try/catch — on exception, log and let vanilla continue.
 
-1. If `!PhotonNetwork.IsMasterClient && PhotonNetwork.InRoom` → return `true` (clients defer to host).
-2. If `!Plugin.Enabled.Value` → return `true` (kill-switch).
-3. Compute `roll = UnityEngine.Random.Range(1, 101)`.
-4. Call `Outcome.ShouldWin(roll, Plugin.WinChancePercent.Value)`:
-   - **false (loss):** return `true` — vanilla damage runs.
-   - **true (win):** call `Payout.Spawn(head.transform.position, Plugin.PayoutValue.Value)` then return `false` — vanilla damage is skipped.
-5. On exception → log, return `true` (fail open to vanilla).
+### `Patches/HurtColliderPatches.cs`
+
+Harmony **prefix** on `HurtCollider.PlayerHurt(PlayerAvatar _player)`. Runs on each client for their own player (vanilla `photonView.IsMine` guard remains intact). Logic:
+
+1. Resolve the parent `MuseumPropMoneyHead`: `var head = __instance.GetComponentInParent<MuseumPropMoneyHead>()`.
+2. If `head == null` → return `true` (this `HurtCollider` belongs to something else — leave it alone).
+3. Look up `WinBroadcast.ConsumePendingResult(head.photonView.ViewID)`:
+   - Returns `true` if there's a pending win for this view ID (and clears the entry).
+   - Returns `false` otherwise (no entry, or entry was a loss).
+4. If win → return `false` (suppress damage).
+5. Else → return `true` (vanilla damage runs).
+6. Wrap in try/catch — fail open.
+
+### `WinBroadcast.cs`
+
+Encapsulates the master→all-clients win-result broadcast using `PhotonNetwork.RaiseEvent`. Surface:
+
+- `internal const byte EventCode = 199;` — chosen from Photon's reserved user range (0..199). Documented in code with a comment so future mod authors don't collide.
+- `internal static void Register()` — called from `Plugin.Awake`. Subscribes to `PhotonNetwork.NetworkingClient.EventReceived`.
+- `internal static void Send(int viewId, bool win)` — master only. Calls `PhotonNetwork.RaiseEvent(EventCode, payload, new RaiseEventOptions { Receivers = ReceiverGroup.All }, SendOptions.SendReliable)`. Payload is `object[] { viewId, win }`. The broadcast also lands on master's own subscriber via `ReceiverGroup.All`, so master stores the result the same way clients do — keeps the consumption path symmetric.
+- `internal static bool ConsumePendingResult(int viewId)` — checks `_pending[viewId]`, removes the entry, returns its value (false if absent).
+- Internal `Dictionary<int, bool> _pending` — keyed by `MuseumPropMoneyHead` view ID. Entries are written by the event handler and removed by `ConsumePendingResult` (one-shot). Stale entries (event broadcast but `PlayerHurt` never fires) are acceptable — the next `StateSetRPC→Closed` overwrites them. The dictionary is plain (not thread-safe) because all reads/writes happen on Unity's main thread.
+
+Singleplayer (no Photon room): `PhotonNetwork.RaiseEvent` is a no-op when not in a room. To still suppress damage in singleplayer, `Send` also calls the local handler directly with the same payload before invoking `RaiseEvent`. This keeps singleplayer working through the same code path.
 
 ### `Outcome.cs`
 
@@ -70,12 +94,15 @@ Edge cases the function handles:
 
 ## Multiplayer authority
 
-Host-authoritative, matching the `chill-shop-keeper` precedent:
+Host-authoritative roll + custom Photon event broadcast:
 
-- The host's mod runs the prefix; the host's RNG is the only RNG that matters.
-- The host's config values are the only ones that matter — no Photon room-property sync needed because there is no shared mutable state beyond "host won this click", which is already expressed by the spawn replicating to clients.
-- Clients with the mod installed but not hosting: their prefix early-returns on the `IsMasterClient` check, so client-local config has no effect during multiplayer. In singleplayer (no Photon room, `InRoom == false`), the local player is effectively the host and the mod runs normally.
-- Clients without the mod installed: see vanilla behavior, plus see the money bag appear when the host wins (because the spawn replicates through the game's normal valuable network path).
+- Only master client rolls. The roll fires once per `StateSetRPC(Closed)` transition on master.
+- Master broadcasts the result (per-Museum-Head-instance, identified by `PhotonView.ViewID`) to all clients via `PhotonNetwork.RaiseEvent(EventCode=199, ...)`.
+- Each client (including master via `ReceiverGroup.All`) records the result in `WinBroadcast._pending`. The clicking player's local `HurtCollider.PlayerHurt` prefix consumes that entry and decides whether to suppress damage.
+- Master also spawns the money-bag valuable. That spawn replicates to clients via the game's normal valuable network path (resolved in research — see `Payout.cs`).
+- Clients with the mod installed but not master: their `StateSetRPC` postfix early-returns (master-only check), but their `HurtCollider.PlayerHurt` prefix and event handler are still live, so they correctly suppress damage when they receive a "win" event from master.
+- Clients without the mod installed: see vanilla behavior. Their `PlayerHurt` is not patched so they take damage even if master rolled a win for them. **This is a known degraded-experience case** — for clean multiplayer the mod must be installed on every client. Acceptable per the chill-shop-keeper precedent (mods are not silently retro-fitted onto unmodded clients).
+- Singleplayer (`!PhotonNetwork.InRoom`): master-client checks return true; `WinBroadcast.Send` calls its local handler directly (and the `RaiseEvent` call is harmlessly no-op'd). Everything else flows the same way.
 
 ## Configuration
 
@@ -118,19 +145,19 @@ Config is read live (`ConfigEntry<T>.Value` on each roll) — no level reload re
 3. **Default 5%:** click head ~40 times (at full health between, or just observe). Expect: roughly 2 wins (95% CI is wide; this is a smoke check, not a statistical test).
 4. **Kill-switch:** `Enabled = false`, click head. Expect: vanilla, no rolls, no bags.
 5. **Custom payout:** `PayoutValue = 1`, win once. Expect: money bag worth $1 spawns.
-6. **Client without host running mod:** host runs vanilla, client has mod. Expect: no wins ever (client prefix early-returns).
-7. **Host runs mod, client doesn't:** host wins → client sees the money bag appear (replicates via game's valuable network path).
+6. **Client without master running mod:** master runs vanilla, client has mod. Expect: no wins ever (master never broadcasts a win event; client's `PlayerHurt` prefix never finds a pending entry → vanilla damage).
+7. **Master runs mod, client doesn't:** master wins → master spawns money bag (replicates via valuable network path), but the clicking client (no mod) takes damage anyway. Known degraded-experience case.
+8. **Both run mod, non-master is the clicker:** master rolls a win on `StateSetRPC(Closed)` → broadcasts via RaiseEvent → clicking client's `PlayerHurt` prefix consumes the entry → suppresses damage. Money bag spawns. ✅
 
-## Research notes (resolved during planning/implementation)
+## Research notes (resolved during Phase 0)
 
-1. **Damage method to patch.** The exact `MuseumPropMoneyHead` method that runs at the damage moment of the suck-in. Decompile `Assembly-CSharp.dll` for `MuseumPropMoneyHead` and identify the call site that invokes `PlayerAvatar.PlayerHurt` (or equivalent). The patch must run *after* the suck-in animation has played but *before* damage is applied — likely the very call to the damage method, prefixed.
-2. **Money-bag spawn API.** The R.E.P.O. valuable-spawn pathway used by host code. Candidates: `ValuableDirector`, `ValuableObject`, `LevelGenerator` spawn helpers. Need to confirm:
-   - The prefab/asset reference for the money-bag valuable.
-   - The method that registers the spawn with Photon so clients see it.
-   - The field/property that sets the per-instance dollar value (`dollarValue`, `valueCurrent`, etc.).
-3. **`PlayerAvatar.steamID`** field-ref pattern is already proven in `mods/chill-shop-keeper/src/Patches/ShopKeeperPatches.cs:10` if logging needs to identify the clicking player.
+See `mods/museum-gambling/docs/superpowers/RESEARCH.md` for the resolved patch targets and remaining unknowns. Key resolved items:
 
-These are implementation tasks, not design decisions — they do not affect the architecture above.
+1. **Patch targets** (v2):
+   - `MuseumPropMoneyHead.StateSetRPC(byte _newState, PhotonMessageInfo _info)` — postfix, master-only roll + broadcast on Closed transition.
+   - `HurtCollider.PlayerHurt(PlayerAvatar _player)` — prefix, each client suppresses its own damage when a pending win exists for the parent `MuseumPropMoneyHead`'s view ID.
+2. **Money-bag spawn API.** Still unresolved. Task 0.3 of the plan identifies the valuable class, spawn entry point, and per-instance value setter.
+3. **`PlayerAvatar.steamID`** field-ref pattern from `mods/chill-shop-keeper/src/Patches/ShopKeeperPatches.cs:10` is available if needed (not currently required by v2 — the prefix has the `PlayerAvatar` directly via `__args[0]`).
 
 ## Out of scope
 
@@ -139,3 +166,16 @@ These are implementation tasks, not design decisions — they do not affect the 
 - Per-player tracked credit / wallet (R.E.P.O. has no per-player wallet; money goes to team haul via the valuable).
 - Visual feedback distinct from vanilla suck-in + the spawned money bag (no extra particles, sounds, UI).
 - Photon room-property config sync (host-authoritative by enforcement; host config is the only one consulted).
+- Backwards-compat with unmodded clients (test case 7 is a known degraded case, accepted).
+
+## Revision history
+
+**v1 (initial brainstorming):** Single Harmony prefix on a `MuseumPropMoneyHead` damage method; host-only roll suppresses damage and spawns money bag in one seam.
+
+**v2 (after Phase 0 research, 2026-05-11):** Phase 0 found that damage is applied by a child `HurtCollider`'s `PlayerHurt` method, which runs on each client for their own player (not host-only), and `hurtCollider.SetActive(true)` is called by every client in their local `StateClosed` block (not master-gated). The single-seam design doesn't work for multiplayer. Replaced with:
+
+- Postfix on `MuseumPropMoneyHead.StateSetRPC` (master-only roll on `Closed` transition, broadcasts via `PhotonNetwork.RaiseEvent`).
+- Prefix on `HurtCollider.PlayerHurt` (consumes broadcast result and suppresses damage on win).
+- New `WinBroadcast.cs` for the event encode/decode + per-view pending map.
+
+User intent unchanged. Config surface unchanged.
