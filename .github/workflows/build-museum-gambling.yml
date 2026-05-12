@@ -1,0 +1,28 @@
+name: Build MuseumGambling
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "mods/museum-gambling/**"
+      - ".github/workflows/build-museum-gambling.yml"
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "mods/museum-gambling/**"
+      - ".github/workflows/build-museum-gambling.yml"
+
+jobs:
+  build:
+    runs-on: self-hosted
+    defaults:
+      run:
+        working-directory: mods/museum-gambling
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: |
+          dotnet build MuseumGambling.csproj \
+            --configuration Release \
+            /p:GameDir="/var/mnt/data/SteamLibrary/steamapps/common/REPO/"

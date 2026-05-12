@@ -1,0 +1,9 @@
+{
+    "name": "MuseumGambling",
+    "version_number": "0.1.0",
+    "website_url": "https://github.com/darkharasho/REPOsitory",
+    "description": "Gamble at the Museum Head - clicking it deals 100 damage with a configurable chance to win 50,000 cash.",
+    "dependencies": [
+        "BepInEx-BepInExPack-5.4.2100"
+    ]
+}
