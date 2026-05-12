@@ -133,3 +133,57 @@ Confirmed all of the following:
       by `MuseumPropMoneyHead`'s state machine in `Update()`, which runs independently)
 - [x] `__instance` is a `MonoBehaviour` so `__instance.transform.position` works —
       confirmed because `HurtCollider : MonoBehaviour`
+
+## Money-bag spawn API
+
+**Valuable class:** `ValuableObject` — the single component present on every spawnable valuable prefab; holds `dollarValueOriginal`, `dollarValueCurrent`, and `dollarValueOverride` fields and drives value replication.
+
+**Money-bag prefab reference:** `AssetManager.instance.surplusValuableSmall` (a `GameObject`) — accessed at runtime, no string constant required. The resource path passed to Photon is `"Valuables/" + AssetManager.instance.surplusValuableSmall.name` (e.g. `"Valuables/Surplus Valuable Small"`). A larger variant `AssetManager.instance.surplusValuableBig` exists (used when surplus > 10 000; `surplusValuableMedium` when surplus > 5 000). The `SurplusValuable` MonoBehaviour plays a coin burst and short-lived indestructibility on Start but is otherwise a normal valuable. There is no dedicated "MoneyBag" prefab; surplus valuables ARE the money-bag objects.
+
+**Spawn entry point (host-only):** `PhotonNetwork.InstantiateRoomObject(string resourcePath, Vector3 position, Quaternion rotation, byte group)` — called directly (not wrapped in a dedicated method). The canonical pattern from `EnemySpinny.SpawnMoneyBag()` and `ExtractionPoint` is:
+
+```csharp
+GameObject prefab = AssetManager.instance.surplusValuableSmall;
+GameObject spawned = SemiFunc.IsMultiplayer()
+    ? PhotonNetwork.InstantiateRoomObject("Valuables/" + prefab.name, position, Quaternion.identity, 0)
+    : Object.Instantiate(prefab, position, Quaternion.identity);
+spawned.GetComponent<ValuableObject>().dollarValueOverride = value;
+```
+
+**Does the spawn API internally call PhotonNetwork.Instantiate / InstantiateRoomObject?** yes — `PhotonNetwork.InstantiateRoomObject` IS the spawn call. It is invoked directly by the host (no wrapper method). `InstantiateRoomObject` replicates the GameObject to all clients via Photon ownership transfer; no extra broadcast is needed.
+
+**Master-only gate inside the spawn method?** no — `EnemySpinny.SpawnMoneyBag()` has no explicit `IsMasterClient` guard; the call site checks `moneyToBeSpawned && !isCollidingMoney` but does not gate on master. The broader `EnemySpinny` update loop is only run by the master (enemy AI is master-authoritative), which provides the implicit guard. Our `Payout.cs` must do its own `SemiFunc.IsMasterClientOrSingleplayer()` check before calling spawn — which Task 3.2's postfix already does.
+
+**Per-instance dollar value:**
+- Field/property: `ValuableObject.dollarValueOverride` (type `int`)
+- Set before or after spawn? **after** — set immediately after `PhotonNetwork.InstantiateRoomObject` returns the `GameObject`, before the first frame runs on any client.
+- Does the new value replicate to clients automatically? **yes, via RPC** — `ValuableObject.Start()` calls `StartCoroutine(DollarValueSet())`. That coroutine waits for `LevelGenerator` to finish and for the `PhotonView.ViewID` to be assigned, then on master calls `DollarValueSetLogic()` (which reads `dollarValueOverride` if non-zero and sets `dollarValueCurrent = dollarValueOverride`) and then fires `photonView.RPC("DollarValueSetRPC", RpcTarget.Others, dollarValueCurrent)` to push the resolved value to all other clients. `dollarValueOverride` must therefore be set **before the coroutine resolves** — i.e. in the same frame as the Instantiate call, which is guaranteed because the coroutine yields `WaitForSeconds(0.05f)` first.
+
+**Code shape we'll use in Payout.cs (concrete, not pseudo):**
+
+```csharp
+// In Payout.Spawn(), called from our HurtCollider.PlayerHurt postfix on master only.
+// position: __instance.transform.position (or offset upward)
+// value: e.g. 50_000
+public static void Spawn(Vector3 position, int value)
+{
+    if (!SemiFunc.IsMasterClientOrSingleplayer()) return;
+
+    GameObject prefab = AssetManager.instance.surplusValuableSmall;
+    GameObject spawned = SemiFunc.IsMultiplayer()
+        ? PhotonNetwork.InstantiateRoomObject("Valuables/" + prefab.name, position, Quaternion.identity, 0)
+        : UnityEngine.Object.Instantiate(prefab, position, Quaternion.identity);
+
+    // dollarValueOverride is read by DollarValueSetLogic(), which the
+    // DollarValueSet coroutine calls after a 0.05 s yield, so setting it
+    // here (same frame as Instantiate) is always in time.
+    spawned.GetComponent<ValuableObject>().dollarValueOverride = value;
+}
+```
+
+**Risks / unknowns:**
+- The prefab name (`AssetManager.instance.surplusValuableSmall.name`) must match the name of the prefab under `Assets/Resources/Valuables/`. In vanilla this is consistent, but if a future game update renames the asset the path will break. A safer fallback is `"Valuables/Surplus Valuable Small"` as a string constant if the name is confirmed stable.
+- `dollarValueOverride` is type `int` but `dollarValueCurrent` / `dollarValueOriginal` are `float`. The cast is implicit and lossless for typical dollar amounts.
+- `DollarValueSet()` also calls `RoundDirector.instance.haulGoalMax += (int)dollarValueCurrent` on master, so spawning a 50 000 surplus valuable will increase the displayed haul goal. This is cosmetically correct (more goal = more tension) but is a visible side-effect if many bags are spawned.
+- The `SurplusValuable` component (on the small surplus prefab) marks the object briefly indestructible (`indestructibleTimer = 3f`) and plays coin particles on Start. This is desirable visual feedback for a win payout.
+- `dollarValueOverride = 0` means "use the random range from the valuePreset" — so callers must pass a non-zero value to override.
