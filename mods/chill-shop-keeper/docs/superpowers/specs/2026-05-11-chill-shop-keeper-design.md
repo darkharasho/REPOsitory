@@ -35,7 +35,7 @@ Single-assembly Harmony plugin with three small parts.
 
 **`PlayerObserverPatches`** (`[HarmonyPatch]` class)
 
-- Postfix on `PlayerAvatar.Start` (or whichever lifecycle method runs once after the avatar is fully initialized — confirmed at planning time). Reads `steamID` and `playerName` off the avatar and calls `PlayerRegistry.Observe`.
+- Postfix on `PlayerAvatar.AddToStatsManagerRPC(string _playerName, string _steamID, ...)`. The RPC is exactly when the game sets the avatar's `steamID` / `playerName` fields, so the postfix gets both values directly as method arguments — no reflection needed. Calls `PlayerRegistry.Observe(_steamID, _playerName)`.
 - This way, every player encountered in any lobby — host, joiner, or solo player — gets a config entry created automatically the first time they're seen, and re-registered (no-op) on subsequent sessions.
 
 **`ShopKeeperPatches`** (`[HarmonyPatch]` class)
@@ -156,5 +156,4 @@ In-game smoke test for the full surface:
 
 - Exact `ShopKeeper.AddRuckusScore` parameter list (PlayerAvatar vs string SteamID, return type, additional args).
 - Exact accessors on `PlayerAvatar`: `steamID` and `playerName` (field vs property, visibility).
-- Exact lifecycle method to postfix for player observation (`Start`, `Awake`, `OnEnable`, or something else that runs once per avatar after networked init).
 - Test-project conventions (location, naming, runner) for the monorepo.

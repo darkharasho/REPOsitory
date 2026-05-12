@@ -18,6 +18,8 @@ public sealed class PlayerRegistry
     {
         if (string.IsNullOrEmpty(steamID)) return;
 
+        // ConcurrentDictionary.GetOrAdd may invoke the factory more than once under contention;
+        // BepInEx ConfigFile.Bind is idempotent on key, so a discarded double-Bind is harmless.
         _entries.GetOrAdd(steamID, sid =>
             _config.Bind(
                 Section,
@@ -32,7 +34,7 @@ public sealed class PlayerRegistry
         return _entries.TryGetValue(steamID, out var entry) && entry.Value;
     }
 
-    // Test-only convenience. Safe to call in prod too; not used by the patches.
+    // Convenience setter for tests and external callers; not used by the patches internally.
     public void SetExempt(string steamID, bool value)
     {
         if (_entries.TryGetValue(steamID, out var entry))

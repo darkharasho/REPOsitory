@@ -8,7 +8,6 @@ namespace ChillShopKeeper;
 [BepInPlugin(PluginInfo.PLUGIN_GUID, PluginInfo.PLUGIN_NAME, PluginInfo.PLUGIN_VERSION)]
 public class Plugin : BaseUnityPlugin
 {
-    internal static Plugin Instance = null!;
     internal static ManualLogSource Log = null!;
 
     internal static ConfigEntry<bool> DisableGlobally = null!;
@@ -16,7 +15,6 @@ public class Plugin : BaseUnityPlugin
 
     private void Awake()
     {
-        Instance = this;
         Log = Logger;
 
         DisableGlobally = Config.Bind(
