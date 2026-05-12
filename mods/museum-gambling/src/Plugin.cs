@@ -40,6 +40,8 @@ public class Plugin : BaseUnityPlugin
                 "Dollar value stamped on the spawned money-bag valuable on a win.",
                 new AcceptableValueRange<int>(0, 1_000_000)));
 
+        WinBroadcast.Register();
+
         var harmony = new Harmony("darkharasho.MuseumGambling");
         harmony.PatchAll();
         Log.LogInfo($"MuseumGambling v{PluginInfo.PLUGIN_VERSION} loaded.");
