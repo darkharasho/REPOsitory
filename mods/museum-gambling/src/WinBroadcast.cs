@@ -10,7 +10,12 @@ internal static class WinBroadcast
     // Photon reserves event codes 200+ for engine use; user codes are 0..199.
     internal const byte EventCode = 199;
 
-    private static readonly Dictionary<int, bool> _pending = new();
+    // Two separate one-shot stores so the damage suppression (consumed at
+    // HurtCollider.PlayerHurt during State.Closed) and the visual effects
+    // (consumed at State.Opening, when the mouth re-opens) don't race.
+    private static readonly Dictionary<int, bool> _pendingDamage = new();
+    private static readonly HashSet<int> _pendingEffects = new();
+
     private static bool _registered;
 
     internal static void Register()
@@ -22,8 +27,7 @@ internal static class WinBroadcast
 
     internal static void Send(int viewId, bool win)
     {
-        // Always apply locally first so singleplayer (no room) and master itself see the result.
-        _pending[viewId] = win;
+        Apply(viewId, win);
 
         if (!PhotonNetwork.InRoom) return;
 
@@ -34,13 +38,15 @@ internal static class WinBroadcast
 
     internal static bool ConsumePendingResult(int viewId)
     {
-        if (_pending.TryGetValue(viewId, out var win))
+        if (_pendingDamage.TryGetValue(viewId, out var win))
         {
-            _pending.Remove(viewId);
+            _pendingDamage.Remove(viewId);
             return win;
         }
         return false;
     }
+
+    internal static bool ConsumePendingEffect(int viewId) => _pendingEffects.Remove(viewId);
 
     private static void OnEventReceived(EventData ev)
     {
@@ -49,6 +55,12 @@ internal static class WinBroadcast
 
         int viewId = (int)data[0];
         bool win = (bool)data[1];
-        _pending[viewId] = win;
+        Apply(viewId, win);
+    }
+
+    private static void Apply(int viewId, bool win)
+    {
+        _pendingDamage[viewId] = win;
+        if (win) _pendingEffects.Add(viewId);
     }
 }
