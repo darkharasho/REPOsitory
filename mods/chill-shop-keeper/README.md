@@ -5,7 +5,7 @@ A R.E.P.O. mod that prevents the in-shop ShopKeeper from punishing players for "
 ## Features
 
 - `DisableGlobally` — kill-switch. When true, the ShopKeeper ignores ruckus from everyone, regardless of the in-shop toggle.
-- Per-player exemptions — for each player ever observed in a lobby, a `Player_<SteamID>` toggle is added to the config. Set to `true` to exempt that player from punishment. Entries are created automatically on first observation and persist across sessions.
+- Per-player exemptions — for each player ever observed in a lobby, a toggle keyed by their display name is added to the `[Immunity]` section of the config. Set to `true` to exempt that player from punishment. Entries are created automatically on first observation and persist across sessions.
 
 `DisableGlobally` overrides per-player toggles.
 
@@ -19,15 +19,17 @@ Example after a couple of sessions:
 [General]
 DisableGlobally = false
 
-[Players]
-Player_76561198000000001 = false   ; Exempt Alice from ShopKeeper punishment
-Player_76561198000000002 = true    ; Exempt Bob from ShopKeeper punishment
+[Immunity]
+Alice = false
+Bob = true
 ```
 
 | Section | Key | Default | Description |
 |---------|-----|---------|-------------|
 | `[General]` | `DisableGlobally` | `false` | ShopKeeper ignores ruckus from everyone. |
-| `[Players]` | `Player_<SteamID>` | `false` | When true, the named player is exempt. Auto-added on first observation. |
+| `[Immunity]` | `<DisplayName>` | `false` | When true, that player is exempt. Auto-added on first observation. If two players share a display name, they share one toggle. |
+
+If two players in your lobby share a display name, they share one toggle. If a player renames, the next time they're observed a new entry is created with the new name; the old entry remains in the cfg but is no longer used.
 
 Compatible with [REPOConfig](https://thunderstore.io/c/repo/p/nickklmao/REPOConfig/) — toggles can be flipped in-game.
 

@@ -81,4 +81,32 @@ public class PlayerRegistryTests : IDisposable
             Assert.True(reg.IsExempt("76561198000000001"));
         }
     }
+
+    [Fact]
+    public void Observe_with_colliding_display_names_shares_one_entry()
+    {
+        var cfg = NewTempConfig();
+        var reg = new PlayerRegistry(cfg);
+
+        reg.Observe("76561198000000001", "Alice");
+        reg.Observe("76561198000000002", "Alice");  // same display name, different steam id
+        reg.SetExempt("76561198000000001", true);
+
+        // BepInEx ConfigFile.Bind returns the existing entry for the same key.
+        // Both steamIDs end up pointing at the same ConfigEntry, so toggling one toggles both.
+        Assert.True(reg.IsExempt("76561198000000001"));
+        Assert.True(reg.IsExempt("76561198000000002"));
+    }
+
+    [Fact]
+    public void Observe_falls_back_to_steamID_key_for_blank_display_name()
+    {
+        var cfg = NewTempConfig();
+        var reg = new PlayerRegistry(cfg);
+
+        reg.Observe("76561198000000003", "   ");  // whitespace-only sanitizes to empty
+        reg.SetExempt("76561198000000003", true);
+
+        Assert.True(reg.IsExempt("76561198000000003"));
+    }
 }

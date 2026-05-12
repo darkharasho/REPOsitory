@@ -5,7 +5,7 @@ namespace ChillShopKeeper;
 
 public sealed class PlayerRegistry
 {
-    private const string Section = "Players";
+    private const string Section = "Immunity";
     private readonly ConfigFile _config;
     private readonly ConcurrentDictionary<string, ConfigEntry<bool>> _entries = new();
 
@@ -23,9 +23,9 @@ public sealed class PlayerRegistry
         _entries.GetOrAdd(steamID, sid =>
             _config.Bind(
                 Section,
-                $"Player_{sid}",
+                ConfigKeyFor(sid, displayName),
                 false,
-                $"Exempt {displayName} from ShopKeeper punishment"));
+                $"Steam ID {sid}. When true, this player is exempt from ShopKeeper punishment."));
     }
 
     public bool IsExempt(string steamID)
@@ -39,5 +39,24 @@ public sealed class PlayerRegistry
     {
         if (_entries.TryGetValue(steamID, out var entry))
             entry.Value = value;
+    }
+
+    private static string ConfigKeyFor(string steamID, string displayName)
+    {
+        var key = Sanitize(displayName);
+        return string.IsNullOrEmpty(key) ? $"Player_{steamID}" : key;
+    }
+
+    private static string Sanitize(string name)
+    {
+        if (string.IsNullOrEmpty(name)) return string.Empty;
+        var chars = name.ToCharArray();
+        for (int i = 0; i < chars.Length; i++)
+        {
+            var c = chars[i];
+            if (c == '=' || c == '\n' || c == '\r' || c == '[' || c == ']')
+                chars[i] = '_';
+        }
+        return new string(chars).Trim();
     }
 }
