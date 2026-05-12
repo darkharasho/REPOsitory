@@ -36,8 +36,7 @@ internal static class MuseumPropMoneyHead_StateSetRPC_Postfix
 
             if (win)
             {
-                // Phase 3: log only. Payout.Spawn wired in Phase 4.
-                Plugin.Log.LogInfo("[MuseumGambling] WIN — pending damage suppression (no payout yet).");
+                Payout.Spawn(__instance.transform.position, Plugin.PayoutValue.Value);
             }
         }
         catch (Exception ex)
