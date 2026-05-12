@@ -16,3 +16,6 @@ obj/
 
 # Superpowers
 .superpowers
+
+# Phase 0 decompilation scratch — not committed
+.research/
