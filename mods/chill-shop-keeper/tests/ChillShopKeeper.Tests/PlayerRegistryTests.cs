@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using System.IO;
 using BepInEx.Configuration;
 using ChillShopKeeper;
@@ -5,12 +7,25 @@ using Xunit;
 
 namespace ChillShopKeeper.Tests;
 
-public class PlayerRegistryTests
+public class PlayerRegistryTests : IDisposable
 {
-    private static ConfigFile NewTempConfig()
+    private readonly List<string> _tempPaths = new();
+
+    private string NewTempPath()
     {
-        var path = Path.Combine(Path.GetTempPath(), $"chill-test-{System.Guid.NewGuid():N}.cfg");
-        return new ConfigFile(path, saveOnInit: true);
+        var path = Path.Combine(Path.GetTempPath(), $"chill-test-{Guid.NewGuid():N}.cfg");
+        _tempPaths.Add(path);
+        return path;
+    }
+
+    private ConfigFile NewTempConfig() => new ConfigFile(NewTempPath(), saveOnInit: true);
+
+    public void Dispose()
+    {
+        foreach (var p in _tempPaths)
+        {
+            try { File.Delete(p); } catch { /* best effort */ }
+        }
     }
 
     [Fact]
@@ -49,7 +64,7 @@ public class PlayerRegistryTests
     [Fact]
     public void Values_persist_across_ConfigFile_reload()
     {
-        var path = Path.Combine(Path.GetTempPath(), $"chill-test-{System.Guid.NewGuid():N}.cfg");
+        var path = NewTempPath();
 
         {
             var cfg = new ConfigFile(path, saveOnInit: true);
