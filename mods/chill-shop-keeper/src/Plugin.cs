@@ -11,6 +11,8 @@ public class Plugin : BaseUnityPlugin
     internal static ManualLogSource Log = null!;
 
     internal static ConfigEntry<bool> DisableGlobally = null!;
+    internal static ConfigEntry<bool> FixCartCannonDetection = null!;
+    internal static ConfigEntry<bool> HostOnlyOnOffSwitch = null!;
     internal static PlayerRegistry Players = null!;
 
     private void Awake()
@@ -22,6 +24,18 @@ public class Plugin : BaseUnityPlugin
             "DisableGlobally",
             false,
             "When true, the ShopKeeper ignores ruckus from everyone. Overrides per-player toggles.");
+
+        FixCartCannonDetection = Config.Bind(
+            "General",
+            "FixCartCannonDetection",
+            false,
+            "When true, attributes Cart Cannon bullet hits to the shooter so the ShopKeeper actually punishes them. Vanilla R.E.P.O. fails to set the attacker on cart-cannon bullets, so the ShopKeeper ignores that damage. Off by default since this mod's purpose is to reduce punishment, not add it.");
+
+        HostOnlyOnOffSwitch = Config.Bind(
+            "General",
+            "HostOnlyOnOffSwitch",
+            false,
+            "When true, only the host (Photon master client) can press the ShopKeeper's on/off switch. Non-host players' presses are blocked locally before any animation, cooldown, or RPC. Default false preserves vanilla button feel.");
 
         Players = new PlayerRegistry(Config);
 
