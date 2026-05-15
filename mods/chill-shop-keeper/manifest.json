@@ -1,6 +1,6 @@
 {
     "name": "ChillShopKeeper",
-    "version_number": "0.2.1",
+    "version_number": "0.3.0",
     "website_url": "https://github.com/darkharasho/REPOsitory",
     "description": "Stops the ShopKeeper from punishing ruckus. Per-player exemptions plus a global kill-switch.",
     "dependencies": [

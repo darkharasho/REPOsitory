@@ -1,7 +1,6 @@
 # Changelog
 
 ## 0.3.0
-- New opt-in `FixCartCannonDetection` toggle (default off) that fixes a vanilla R.E.P.O. bug where Cart Cannon bullets aren't attributed to the shooter, causing the ShopKeeper to ignore that damage. Enable it if you want the ShopKeeper to punish Cart Cannon users.
 - New opt-in `HostOnlyOnOffSwitch` toggle (default off) that blocks non-host players from pressing the ShopKeeper's on/off switch. Vanilla already silently drops non-host presses on the host; this just prevents the wasted local press for clarity.
 
 ## 0.2.1
