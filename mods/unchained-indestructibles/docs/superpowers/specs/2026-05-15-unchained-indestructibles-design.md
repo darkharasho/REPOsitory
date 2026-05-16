@@ -23,7 +23,7 @@ The decompile shows the cap is enforced in two host-side code paths, gated by pe
 | `maxAmountInShop` | `ShopManager.GetAllItemsFromStatsManager` (Assembly-CSharp.dll, decompile line 233-238) | Caps how many of an item the shop populates per refresh, including a skip-entirely branch when `purchased >= maxAmountInShop`. |
 | `maxAmount` | `ItemManager.GetPurchasedItems` (decompile line 153, `Mathf.Clamp(value, 0, item.maxAmount)`) | Caps how many of an item are added to the run inventory from `StatsManager.itemsPurchased`. |
 
-The Indestructible Drone `Item` ScriptableObject lives in `StatsManager.instance.itemDictionary` and is identifiable by `itemType == SemiFunc.itemType.drone_indestructible`. `ItemDroneIndestructible` (the per-instance behavior) has no global cap of its own — running multiple drones simultaneously is supported by the game.
+The Indestructible Drone `Item` ScriptableObject lives in `StatsManager.instance.itemDictionary` and is identifiable by `emojiIcon == SemiFunc.emojiIcon.drone_indestructible`. (Note: `SemiFunc.itemType` is a category enum — `drone`, `orb`, `cart`, etc. — and does not distinguish drone variants. The per-variant discriminant lives on `Item.emojiIcon`, which is a public `SemiFunc.emojiIcon` field.) `ItemDroneIndestructible` (the per-instance behavior) has no global cap of its own — running multiple drones simultaneously is supported by the game.
 
 ## Architecture
 
@@ -89,7 +89,7 @@ internal static class DroneItem
         if (_cached != null) return _cached;
         foreach (var item in stats.itemDictionary.Values)
         {
-            if (item.itemType == SemiFunc.itemType.drone_indestructible)
+            if (item.emojiIcon == SemiFunc.emojiIcon.drone_indestructible)
             {
                 _cached = item;
                 break;

@@ -4,7 +4,7 @@
 
 **Goal:** Implement the UnchainedIndestructibles BepInEx mod so the Indestructible Drone can spawn in the shop and be carried into a run beyond the vanilla cap of 1.
 
-**Architecture:** Two scoped Harmony prefix+finalizer pairs. Each prefix temporarily raises a cap field (`Item.maxAmountInShop` for shop populate, `Item.maxAmount` for run inventory build) on the Indestructible Drone's `Item` ScriptableObject; the finalizer restores it. A static resolver caches the drone `Item` by `itemType == SemiFunc.itemType.drone_indestructible` from `StatsManager.instance.itemDictionary`. One config section drives both caps.
+**Architecture:** Two scoped Harmony prefix+finalizer pairs. Each prefix temporarily raises a cap field (`Item.maxAmountInShop` for shop populate, `Item.maxAmount` for run inventory build) on the Indestructible Drone's `Item` ScriptableObject; the finalizer restores it. A static resolver caches the drone `Item` by `emojiIcon == SemiFunc.emojiIcon.drone_indestructible` from `StatsManager.instance.itemDictionary` (`SemiFunc.itemType` is only category-level; `Item.emojiIcon` distinguishes drone variants). One config section drives both caps.
 
 **Tech Stack:** C# / netstandard2.1 / BepInEx 5.4.21 / HarmonyX (`HarmonyLib`) / Unity 2022 (R.E.P.O.). No automated tests (Unity singletons + Photon make unit tests impractical in this monorepo); verification is build + plugin-loaded log line per the spec's testing-strategy section.
 
@@ -153,7 +153,7 @@ namespace UnchainedIndestructibles
 
             foreach (var item in stats.itemDictionary.Values)
             {
-                if (item != null && item.itemType == SemiFunc.itemType.drone_indestructible)
+                if (item != null && item.emojiIcon == SemiFunc.emojiIcon.drone_indestructible)
                 {
                     _cached = item;
                     break;
@@ -179,7 +179,7 @@ cd mods/unchained-indestructibles
 GAME_DIR="/var/mnt/data/SteamLibrary/steamapps/common/REPO/" dotnet build UnchainedIndestructibles.csproj --configuration Release
 ```
 
-Expected: success. If `Item` or `SemiFunc.itemType.drone_indestructible` aren't resolvable, the build fails — fix typos before continuing.
+Expected: success. If `Item` or `SemiFunc.emojiIcon.drone_indestructible` aren't resolvable, the build fails — fix typos before continuing.
 
 - [ ] **Step 3: Commit**
 
