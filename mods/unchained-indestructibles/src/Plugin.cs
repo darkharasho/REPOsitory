@@ -1,5 +1,4 @@
 using BepInEx;
-using BepInEx.Configuration;
 using BepInEx.Logging;
 using HarmonyLib;
 
@@ -13,8 +12,12 @@ namespace UnchainedIndestructibles
         private void Awake()
         {
             Log = Logger;
+
+            UnchainedIndestructibles.Config.Bind(base.Config);
+
             var harmony = new Harmony("darkharasho.UnchainedIndestructibles");
             harmony.PatchAll();
+
             Log.LogInfo($"UnchainedIndestructibles v{PluginInfo.PLUGIN_VERSION} loaded.");
         }
     }
