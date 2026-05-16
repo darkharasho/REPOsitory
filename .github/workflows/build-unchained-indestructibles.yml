@@ -1,0 +1,28 @@
+name: Build UnchainedIndestructibles
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "mods/unchained-indestructibles/**"
+      - ".github/workflows/build-unchained-indestructibles.yml"
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "mods/unchained-indestructibles/**"
+      - ".github/workflows/build-unchained-indestructibles.yml"
+
+jobs:
+  build:
+    runs-on: self-hosted
+    defaults:
+      run:
+        working-directory: mods/unchained-indestructibles
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: |
+          dotnet build UnchainedIndestructibles.csproj \
+            --configuration Release \
+            /p:GameDir="/var/mnt/data/SteamLibrary/steamapps/common/REPO/"

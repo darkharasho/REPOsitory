@@ -1,0 +1,9 @@
+{
+    "name": "UnchainedIndestructibles",
+    "version_number": "0.1.0",
+    "website_url": "https://github.com/darkharasho/REPOsitory",
+    "description": "Removes the hard cap on Indestructible Drones so you can stock and carry as many as you want.",
+    "dependencies": [
+        "BepInEx-BepInExPack-5.4.2100"
+    ]
+}
