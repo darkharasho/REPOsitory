@@ -30,9 +30,23 @@ namespace Overstaffed
             Log.LogInfo($"Overstaffed v{PluginInfo.PLUGIN_VERSION} loading — MaxPlayers={ConfigMaxPlayers.Value}");
 
             var harmony = new Harmony(PluginInfo.PLUGIN_GUID);
-            harmony.PatchAll();
+            TryPatch(harmony, typeof(Patches.GameManagerAwakePatch));
+            TryPatch(harmony, typeof(Patches.GameManagerSetMaxPlayersPatch));
+            TryPatch(harmony, typeof(Patches.NetworkConnectOnConnectedToMasterPatch));
 
             Log.LogInfo("Overstaffed loaded.");
+        }
+
+        private static void TryPatch(Harmony harmony, System.Type patchType)
+        {
+            try
+            {
+                harmony.CreateClassProcessor(patchType).Patch();
+            }
+            catch (System.Exception e)
+            {
+                Log.LogWarning($"[Overstaffed] Failed to apply {patchType.Name}: {e.GetType().Name}: {e.Message}");
+            }
         }
     }
 }
