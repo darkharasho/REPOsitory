@@ -1,0 +1,9 @@
+{
+    "name": "Overstaffed",
+    "version_number": "0.1.0",
+    "website_url": "https://github.com/darkharasho/REPOsitory",
+    "description": "Raises R.E.P.O.'s max player count above 6. Configurable up to 20.",
+    "dependencies": [
+        "BepInEx-BepInExPack-5.4.2100"
+    ]
+}
