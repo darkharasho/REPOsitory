@@ -8,7 +8,9 @@ namespace MuseumGambling;
 internal static class WinBroadcast
 {
     // Photon reserves event codes 200+ for engine use; user codes are 0..199.
-    internal const byte EventCode = 199;
+    // REPO itself uses 199 ("you were kicked"), 123 (kick), and 124 (ban) —
+    // anything in that set will boot every client to the lobby on receipt.
+    internal const byte EventCode = 173;
 
     // Two separate one-shot stores so the damage suppression (consumed at
     // HurtCollider.PlayerHurt during State.Closed) and the visual effects
@@ -36,15 +38,17 @@ internal static class WinBroadcast
         PhotonNetwork.RaiseEvent(EventCode, payload, options, SendOptions.SendReliable);
     }
 
-    internal static bool ConsumePendingResult(int viewId)
+    // Peek (don't remove): the head's hurt collider stays active for the
+    // full 3-second Closed window and can re-trigger PlayerHurt every
+    // playerDamageCooldown (~0.25s). Consuming on first hit would leave
+    // subsequent hits unsuppressed and kill the winner anyway. The flag is
+    // cleared at the State.Opening transition instead.
+    internal static bool PeekPendingResult(int viewId)
     {
-        if (_pendingDamage.TryGetValue(viewId, out var win))
-        {
-            _pendingDamage.Remove(viewId);
-            return win;
-        }
-        return false;
+        return _pendingDamage.TryGetValue(viewId, out var win) && win;
     }
+
+    internal static void ClearPendingResult(int viewId) => _pendingDamage.Remove(viewId);
 
     internal static bool ConsumePendingEffect(int viewId) => _pendingEffects.Remove(viewId);
 

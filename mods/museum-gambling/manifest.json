@@ -1,6 +1,6 @@
 {
     "name": "MuseumGambling",
-    "version_number": "0.1.1",
+    "version_number": "0.1.4",
     "website_url": "https://github.com/darkharasho/REPOsitory",
     "description": "Gamble at the Museum Head - clicking it deals 100 damage with a configurable chance to win 50,000 cash.",
     "dependencies": [
