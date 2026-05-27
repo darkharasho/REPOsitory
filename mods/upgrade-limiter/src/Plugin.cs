@@ -401,15 +401,15 @@ namespace UpgradeLimiter
             var props = Photon.Pun.PhotonNetwork.CurrentRoom?.CustomProperties;
             if (props == null) return;
 
-            bool any = false;
+            bool changed = false;
             foreach (var e in UpgradeRegistry.Entries)
             {
                 string ke = "UL_" + e.Name + "_E";
                 string km = "UL_" + e.Name + "_M";
-                if (props.ContainsKey(ke) && props[ke] is bool be) { e.ActiveEnabled = be; any = true; }
-                if (props.ContainsKey(km) && props[km] is int mi) { e.ActiveMax = mi; any = true; }
+                if (props.ContainsKey(ke) && props[ke] is bool be && e.ActiveEnabled != be) { e.ActiveEnabled = be; changed = true; }
+                if (props.ContainsKey(km) && props[km] is int mi && e.ActiveMax != mi) { e.ActiveMax = mi; changed = true; }
             }
-            if (any) Plugin.Log.LogInfo("[Sync] Pulled host upgrade-limit settings from room properties");
+            if (changed) Plugin.Log.LogInfo("[Sync] Pulled host upgrade-limit settings from room properties");
         }
     }
 
