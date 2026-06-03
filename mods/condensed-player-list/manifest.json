@@ -1,0 +1,9 @@
+{
+    "name": "CondensedPlayerList",
+    "version_number": "0.1.0",
+    "website_url": "https://github.com/darkharasho/REPOsitory",
+    "description": "Condenses the lobby and ESC-menu player list into tighter single-column rows so large player groups fit on screen without running off the edge.",
+    "dependencies": [
+        "BepInEx-BepInExPack-5.4.2100"
+    ]
+}
