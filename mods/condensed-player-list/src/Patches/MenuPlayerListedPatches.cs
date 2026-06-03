@@ -13,11 +13,13 @@ namespace CondensedPlayerList.Patches
         private static readonly AccessTools.FieldRef<MenuPlayerListed, int> ListSpotRef =
             AccessTools.FieldRefAccess<MenuPlayerListed, int>("listSpot");
 
+        private static bool _errorLogged;
+
         private static void Postfix(MenuPlayerListed __instance)
         {
             try
             {
-                if (__instance == null || __instance.forceCrown)
+                if (__instance.forceCrown)
                     return;
 
                 int listSpot = ListSpotRef(__instance);
@@ -28,7 +30,11 @@ namespace CondensedPlayerList.Patches
             catch (Exception ex)
             {
                 // Never let a per-frame postfix throw repeatedly.
-                Plugin.Log.LogError($"MenuPlayerListed Update postfix failed: {ex}");
+                if (!_errorLogged)
+                {
+                    Plugin.Log.LogError($"MenuPlayerListed Update postfix failed: {ex}");
+                    _errorLogged = true;
+                }
             }
         }
     }
