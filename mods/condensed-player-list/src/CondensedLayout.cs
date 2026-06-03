@@ -6,8 +6,11 @@ namespace CondensedPlayerList
     /// </summary>
     public static class CondensedLayout
     {
-        // Vanilla per-row spacing (from MenuPlayerListed.Update): lobby 32, esc 22.
-        // Condensed targets — tighter gaps so more rows fit on screen. Tuned in-game.
+        // Vanilla R.E.P.O. per-row spacing (from MenuPlayerListed.Update), for reference.
+        public const float VanillaLobbySpacing = 32f;
+        public const float VanillaEscSpacing = 22f;
+
+        // Condensed targets — tighter than vanilla so more rows fit on screen. Tuned in-game.
         public const float LobbySpacing = 22f;
         public const float EscSpacing = 15f;
 

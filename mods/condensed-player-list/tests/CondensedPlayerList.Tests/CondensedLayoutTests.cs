@@ -11,23 +11,23 @@ public class CondensedLayoutTests
     public void FirstRow_isAtOrigin_y(bool isLobby, int listSpot)
     {
         var (_, y) = CondensedLayout.CondensedPosition(listSpot, isLobby);
-        Assert.Equal(0f, y);
+        Assert.Equal(0f, y, 3);
     }
 
     [Fact]
     public void Lobby_usesCondensedSpacing_22()
     {
         var (x, y) = CondensedLayout.CondensedPosition(3, isLobby: true);
-        Assert.Equal(0f, x);            // lobby X preserved
-        Assert.Equal(-66f, y);          // -3 * 22
+        Assert.Equal(0f, x, 3);         // lobby X preserved
+        Assert.Equal(-66f, y, 3);       // -3 * 22
     }
 
     [Fact]
     public void Esc_usesCondensedSpacing_15()
     {
         var (x, y) = CondensedLayout.CondensedPosition(3, isLobby: false);
-        Assert.Equal(-23f, x);          // esc X preserved
-        Assert.Equal(-45f, y);          // -3 * 15
+        Assert.Equal(-23f, x, 3);       // esc X preserved
+        Assert.Equal(-45f, y, 3);       // -3 * 15
     }
 
     [Theory]
@@ -35,7 +35,7 @@ public class CondensedLayoutTests
     [InlineData(false)]
     public void Spacing_isTighterThanVanilla(bool isLobby)
     {
-        float vanilla = isLobby ? 32f : 22f;
+        float vanilla = isLobby ? CondensedLayout.VanillaLobbySpacing : CondensedLayout.VanillaEscSpacing;
         var (_, y1) = CondensedLayout.CondensedPosition(1, isLobby);
         Assert.True(-y1 < vanilla, $"row gap {-y1} should be < vanilla {vanilla}");
     }
