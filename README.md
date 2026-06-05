@@ -12,6 +12,7 @@ Monorepo for my [R.E.P.O.](https://store.steampowered.com/app/3241660/REPO/) mod
 | [MuseumGambling](mods/museum-gambling) | Turns the Museum Head into a slot machine — configurable chance to pay out a money bag instead of dealing damage. |
 | [UnchainedIndestructibles](mods/unchained-indestructibles) | Removes the hard cap on Indestructible Drones so you can stock and carry as many as you want. |
 | [Overstaffed](mods/overstaffed) | Raises R.E.P.O.'s max player count above 6. Configurable up to 20. |
+| [CondensedPlayerList](mods/condensed-player-list) | Condenses the lobby and ESC-menu player list into tighter single-column rows so large lobbies fit on screen. |
 
 ## Layout
 
@@ -23,6 +24,7 @@ mods/
   museum-gambling/     # MuseumGambling BepInEx plugin
   unchained-indestructibles/  # UnchainedIndestructibles BepInEx plugin
   overstaffed/         # Overstaffed BepInEx plugin
+  condensed-player-list/  # CondensedPlayerList BepInEx plugin
 .github/workflows/     # Per-mod build workflows (path-filtered)
 ```
 
