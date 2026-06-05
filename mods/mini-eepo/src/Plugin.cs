@@ -800,6 +800,52 @@ namespace MiniEepo
         }
     }
 
+    // This is the actual held-gun HEIGHT fix. REPO holds a gun's grab point a bit below eye level
+    // each frame: ItemGun.UpdateMaster calls PhysGrabObject.OverrideGrabVerticalPosition(grabVerticalOffset)
+    // with grabVerticalOffset = -0.2, and the engine applies `pullerPos += cameraUp * thatValue`.
+    // ScalerCore's GrabVerticalPositionScalePatch PREFIXES the same method and forces the value to 0
+    // for ANY scaled player — so a shrunk player loses that -0.2 drop and the gun rides ~0.2m up,
+    // which on a 0.4-scale body (~0.28m tall) puts it up near the head. (aimVerticalOffset above is
+    // only aim pitch, not height — it can't fix this.)
+    //
+    // We postfix the same method (runs after ScalerCore's prefix) and, for a gun held by a shrunk
+    // player, restore a PROPORTIONAL drop: grabVerticalOffset * factor (-0.2 * 0.4 = -0.08). That's
+    // the full-size -0.2 scaled to the tiny body, so the gun hangs at hand height again instead of
+    // eye/overhead. Non-guns and full-size holders are left exactly as ScalerCore set them.
+    [HarmonyPatch(typeof(PhysGrabObject), "OverrideGrabVerticalPosition")]
+    internal static class GunGrabVerticalRestorePatch
+    {
+        // Cache ItemGun per PGO (null = not a gun). OverrideGrabVerticalPosition is also called for
+        // enemies/other items every frame, so reject non-guns cheaply before any list scan.
+        private static readonly Dictionary<int, ItemGun?> _gun = new Dictionary<int, ItemGun?>();
+        private static readonly AccessTools.FieldRef<PhysGrabObject, float> _posRef =
+            AccessTools.FieldRefAccess<PhysGrabObject, float>("overrideGrabRelativeVerticalPosition");
+        private static readonly AccessTools.FieldRef<PhysGrabObject, float> _timerRef =
+            AccessTools.FieldRefAccess<PhysGrabObject, float>("overrideGrabRelativeVerticalPositionTimer");
+
+        private static void Postfix(PhysGrabObject __instance)
+        {
+            int id = __instance.GetInstanceID();
+            if (!_gun.TryGetValue(id, out var gun))
+            {
+                gun = __instance.GetComponent<ItemGun>();
+                _gun[id] = gun;
+            }
+            if (gun == null || __instance.playerGrabbing == null) return;
+
+            float factor = 1f;
+            foreach (var pg in __instance.playerGrabbing)
+            {
+                var pa = pg != null ? pg.playerAvatar : null;
+                if (pa != null) { factor = pa.transform.localScale.x; break; }
+            }
+            if (factor >= 0.99f) return; // holder not shrunk — keep ScalerCore's value
+
+            _posRef(__instance) = gun.grabVerticalOffset * factor;
+            _timerRef(__instance) = 0.1f;
+        }
+    }
+
     // Postfix on ScalerCore's CartHandledDistancePatch.ScalePullDist — the standoff scaler its
     // CartSteer transpiler injects around PhysGrabCart's fixed 2–2.5m push distance. ScalerCore only
     // nudges that standoff to ~0.91 for a shrunk grabber, so a tiny player keeps a near-full standoff;
