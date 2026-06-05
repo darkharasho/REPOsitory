@@ -147,6 +147,27 @@ namespace MiniEepo
             else
                 Log.LogWarning("[BonkImmune] PlayerBonkPatch.Postfix not found — damage may un-shrink");
 
+            // Same problem on death: ScalerCore's PlayerDeathExpandPatch postfix calls
+            // controller.DispatchExpand() on the master client when a player dies, leaving the
+            // dead/revived player at full size (BonkBlocker only covers the damage path). Block
+            // its Postfix the same way so dying — and the subsequent revive — keeps the player shrunk.
+            System.Type? deathExpandPatch = null;
+            foreach (var asm in System.AppDomain.CurrentDomain.GetAssemblies())
+            {
+                if (asm.GetName().Name != "ScalerCore") continue;
+                foreach (var t in asm.GetTypes())
+                    if (t.Name == "PlayerDeathExpandPatch") { deathExpandPatch = t; break; }
+                if (deathExpandPatch != null) break;
+            }
+            var deathExpandPostfix = deathExpandPatch != null ? AccessTools.Method(deathExpandPatch, "Postfix") : null;
+            if (deathExpandPostfix != null)
+            {
+                harmony.Patch(deathExpandPostfix, prefix: new HarmonyMethod(typeof(BonkBlocker), nameof(BonkBlocker.Prefix)));
+                Log.LogInfo($"[BonkImmune] Disabled ScalerCore's death-expand (dying no longer un-shrinks)");
+            }
+            else
+                Log.LogWarning("[BonkImmune] PlayerDeathExpandPatch.Postfix not found — death may un-shrink");
+
             // Revive resets localScale — re-shrink after recovery. Tumble/Hurt patches were tried
             // but ForceShrink mid-tumble destroys ScalerCore's controller and breaks the tumble
             // state, leaving the player at full size. The continuous LateUpdate watcher handles
@@ -170,6 +191,57 @@ namespace MiniEepo
                 if (pgoFixed != null)
                     harmony.Patch(pgoFixed, postfix: new HarmonyMethod(typeof(HeldGunStabilizationPatch), nameof(HeldGunStabilizationPatch.Postfix)));
             }
+
+            // Held-gun puller re-lift. REPO's StartGrabbingPhysObject bakes a -camera.up*0.3 offset
+            // on forceGrabPoint items, drooping shrunk players' guns toward the floor. We used to
+            // counter it with a +0.3 lift (gated to guns). ScalerCore 0.6.1 added its own
+            // ForceGrabPointVerticalScalePatch — a Postfix on the SAME method that lifts guns by
+            // 0.3*(1-factor). When that's present our lift stacks on top and the gun floats up /
+            // "shoots upward". So only register ours when ScalerCore isn't already doing it (older
+            // ScalerCore < 0.6.1).
+            bool scalerLiftsGuns = false;
+            foreach (var asm in System.AppDomain.CurrentDomain.GetAssemblies())
+            {
+                if (asm.GetName().Name != "ScalerCore") continue;
+                foreach (var t in asm.GetTypes())
+                    if (t.Name == "ForceGrabPointVerticalScalePatch") { scalerLiftsGuns = true; break; }
+                break;
+            }
+            if (scalerLiftsGuns)
+                Log.LogInfo("[GunLift] ScalerCore handles gun puller height — skipping our lift (avoids double-lift / upward droop)");
+            else
+            {
+                var startGrab = AccessTools.Method(typeof(PhysGrabber), "StartGrabbingPhysObject");
+                if (startGrab != null)
+                {
+                    harmony.Patch(startGrab, postfix: new HarmonyMethod(typeof(GrabPullerOffsetFixForGuns), nameof(GrabPullerOffsetFixForGuns.Postfix)));
+                    Log.LogInfo("[GunLift] Registered gun puller re-lift (ScalerCore pre-0.6.1 doesn't lift guns)");
+                }
+            }
+
+            // Cart push recoil. The game's PhysGrabCart.CartSteer parks the cart a fixed 2–2.5m
+            // (3–4 sprinting) in front of the grabber. ScalerCore's CartSteer transpiler routes that
+            // standoff through CartHandledDistancePatch.ScalePullDist, but for a shrunk *grabber* it
+            // only scales by Lerp(1, factor, 0.15) ≈ 0.91 — so a 0.4-size player keeps a near-full
+            // standoff. The cart then sweeps a large arc on turns/stops and its collider shoves the
+            // tiny player back. Postfix that one method to pull the standoff proportionally closer to
+            // the shrunk player so the geometry matches their size and the recoil goes away.
+            System.Type? cartDistPatch = null;
+            foreach (var asm in System.AppDomain.CurrentDomain.GetAssemblies())
+            {
+                if (asm.GetName().Name != "ScalerCore") continue;
+                foreach (var t in asm.GetTypes())
+                    if (t.Name == "CartHandledDistancePatch") { cartDistPatch = t; break; }
+                break;
+            }
+            var scalePullDist = cartDistPatch != null ? AccessTools.Method(cartDistPatch, "ScalePullDist") : null;
+            if (scalePullDist != null)
+            {
+                harmony.Patch(scalePullDist, postfix: new HarmonyMethod(typeof(CartStandoffShrinkPatch), nameof(CartStandoffShrinkPatch.Postfix)));
+                Log.LogInfo("[Cart] Strengthened shrunk-grabber cart standoff (reduces cart recoil/shove on tiny players)");
+            }
+            else
+                Log.LogWarning("[Cart] ScalerCore CartHandledDistancePatch.ScalePullDist not found — cart may shove shrunk players");
 
             Log.LogInfo($"MiniEepo v{PluginInfo.PLUGIN_VERSION} loaded — everything is tiny now.");
         }
@@ -208,7 +280,9 @@ namespace MiniEepo
             var current = rm.levelCurrent;
             if (current == null) return false;
             if (current == rm.levelLobby || current == rm.levelLobbyMenu) return false;
-            if (current == rm.levelShop && !ActiveShrinkInShop) return false;
+            // levelShop became a List<Level> in a recent game update — use the game's own helper
+            // instead of an equality check against a single Level.
+            if (SemiFunc.IsLevelShop(current) && !ActiveShrinkInShop) return false;
             return true;
         }
 
@@ -588,8 +662,9 @@ namespace MiniEepo
     }
 
 
-    // Applied as Prefix on ScalerCore.Patches.PlayerBonkPatch.Postfix — returning false skips
-    // RequestBonkExpand entirely, so taking damage no longer un-shrinks the player.
+    // Applied as Prefix on ScalerCore's PlayerBonkPatch.Postfix AND PlayerDeathExpandPatch.Postfix
+    // — returning false skips RequestBonkExpand / DispatchExpand entirely, so neither taking damage
+    // nor dying un-shrinks the player.
     internal static class BonkBlocker
     {
         public static bool Prefix() => false;
@@ -736,23 +811,58 @@ namespace MiniEepo
     // but guns still droop because the baked-in `- camera.up * 0.3` offset on forceGrabPoint items
     // pulls them below the shrunken eye line. Re-lift only for guns so valuables keep ScalerCore's
     // natural feel.
-    [HarmonyPatch(typeof(PhysGrabber), "StartGrabbingPhysObject")]
+    //
+    // The lift must SCALE with how shrunk the player is — `0.3 * (1 - factor)` — exactly matching
+    // ScalerCore 0.6.1's ForceGrabPointVerticalScalePatch. A flat `0.3` fully cancels the game's
+    // `-0.3` droop (net 0), but ScalerCore deliberately leaves partial droop (e.g. -0.12 at 0.4
+    // scale) so a tiny player's gun sits naturally. The flat lift held guns ~0.12 too high — the
+    // "guns held higher than usual" bug on pre-0.6.1 ScalerCore where this patch is the only lifter.
+    //
+    // No [HarmonyPatch] attribute — registered manually in Plugin.Awake ONLY when ScalerCore lacks
+    // its own ForceGrabPointVerticalScalePatch (added in 0.6.1). On 0.6.1+ ScalerCore lifts guns
+    // itself, so registering ours too would double-lift and make the gun shoot upward.
     internal static class GrabPullerOffsetFixForGuns
     {
-        static void Postfix(PhysGrabber __instance, PhysGrabObject ___grabbedPhysGrabObject)
+        internal static void Postfix(PhysGrabber __instance, PhysGrabObject ___grabbedPhysGrabObject)
         {
             var pa = __instance.playerAvatar;
             if (pa == null) return;
-            if (pa.transform.localScale.x > 0.99f) return; // not shrunk
+            float factor = pa.transform.localScale.x;
+            if (factor > 0.99f) return; // not shrunk
             var grabbed = ___grabbedPhysGrabObject;
             if (grabbed == null || grabbed.GetComponent<ItemGun>() == null) return;
             var puller = __instance.physGrabPointPuller;
             if (puller == null) return;
             var cam = Camera.main;
             if (cam == null) return;
-            Vector3 lift = cam.transform.up * 0.3f;
+            Vector3 lift = cam.transform.up * (0.3f * (1f - factor));
             puller.position += lift;
             __instance.physGrabPointPlane.position += lift;
+        }
+    }
+
+    // Postfix on ScalerCore's CartHandledDistancePatch.ScalePullDist — the standoff scaler its
+    // CartSteer transpiler injects around PhysGrabCart's fixed 2–2.5m push distance. ScalerCore only
+    // nudges that standoff to ~0.91 for a shrunk grabber, so a tiny player keeps a near-full standoff;
+    // the cart then sweeps a large arc and its collider shoves them on turns/stops. Re-scale the
+    // standoff toward the player's own size so the cart hugs proportionally close and stops recoiling.
+    // Strength is how far we pull toward fully-proportional (ScalerCore uses 0.15; 0.85 ≈ proportional
+    // with a small safety gap so the cart never clips the player). Tune in-game if it feels off.
+    //
+    // No [HarmonyPatch] attribute — registered manually in Plugin.Awake only when ScalerCore exposes
+    // the method, so a ScalerCore refactor degrades to "no change" rather than a load error.
+    internal static class CartStandoffShrinkPatch
+    {
+        private const float Strength = 0.85f;
+
+        internal static void Postfix(ref float __result, float d, PhysGrabber grabber)
+        {
+            if (grabber == null) return;
+            var pa = grabber.playerAvatar;
+            if (pa == null) return;
+            float factor = pa.transform.localScale.x;
+            if (factor >= 0.99f) return; // grabber not shrunk — keep ScalerCore's value
+            __result = d * Mathf.Lerp(1f, factor, Strength);
         }
     }
 
