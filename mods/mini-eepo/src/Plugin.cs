@@ -846,6 +846,56 @@ namespace MiniEepo
         }
     }
 
+    // Restore pistol-whipping / melee-bonking for shrunk players. A held object knocks a player over
+    // only when its tracked impact velocity (PhysGrabObjectImpactDetector.previousPreviousVelocityRaw)
+    // clears the game's gate — 6 for a non-valuable item like a gun or melee weapon. A shrunk player
+    // swings on a much smaller radius, so that velocity scales down roughly with the player and a
+    // whip almost never reaches 6 — knockdowns stop working when mini. That field feeds ONLY the
+    // player/enemy tumble gates (break/hurt use rb.mass + previousVelocity, not this), so we can
+    // safely scale it back up by ~1/factor for a WEAPON held by a shrunk player: a proportional swing
+    // now lands like it does at full size, while a gentle nudge still stays under the threshold. We
+    // don't touch impact force/damage (those read rb.mass), only the knock-or-not decision.
+    //
+    // Gated to weapons (ItemGun or ItemEquippable — guns, melee, grenades, batons, etc.) so carrying
+    // a valuable or prop doesn't get the same boost; those keep vanilla impact behaviour.
+    [HarmonyPatch(typeof(PhysGrabObjectImpactDetector), "FixedUpdate")]
+    internal static class ShrunkWeaponWhipPatch
+    {
+        // Cache (isWeapon, pgo) per detector. Reject the overwhelming majority (non-weapons) before
+        // any per-frame work; FixedUpdate is 50Hz. ItemEquippable may sit above or below the
+        // PhysGrabObject in the item hierarchy, so look both ways once and remember the answer.
+        private static readonly Dictionary<int, (bool isWeapon, PhysGrabObject? pgo)> _cache =
+            new Dictionary<int, (bool, PhysGrabObject?)>();
+        private static readonly AccessTools.FieldRef<PhysGrabObjectImpactDetector, Vector3> _ppvRef =
+            AccessTools.FieldRefAccess<PhysGrabObjectImpactDetector, Vector3>("previousPreviousVelocityRaw");
+
+        private static void Postfix(PhysGrabObjectImpactDetector __instance)
+        {
+            int id = __instance.GetInstanceID();
+            if (!_cache.TryGetValue(id, out var c))
+            {
+                bool isWeapon = __instance.GetComponent<ItemGun>() != null
+                             || __instance.GetComponentInParent<ItemEquippable>(includeInactive: true) != null
+                             || __instance.GetComponentInChildren<ItemEquippable>(includeInactive: true) != null;
+                c = (isWeapon, __instance.GetComponent<PhysGrabObject>());
+                _cache[id] = c;
+            }
+            if (!c.isWeapon || c.pgo == null) return;
+            var grabbing = c.pgo.playerGrabbing;
+            if (grabbing == null || grabbing.Count == 0) return;
+
+            float factor = 1f;
+            foreach (var pg in grabbing)
+            {
+                var pa = pg != null ? pg.playerAvatar : null;
+                if (pa != null) { factor = pa.transform.localScale.x; break; }
+            }
+            if (factor >= 0.99f || factor <= 0.05f) return; // not shrunk (or absurd) — leave as-is
+
+            _ppvRef(__instance) *= Mathf.Min(1f / factor, 3f);
+        }
+    }
+
     // Postfix on ScalerCore's CartHandledDistancePatch.ScalePullDist — the standoff scaler its
     // CartSteer transpiler injects around PhysGrabCart's fixed 2–2.5m push distance. ScalerCore only
     // nudges that standoff to ~0.91 for a shrunk grabber, so a tiny player keeps a near-full standoff;

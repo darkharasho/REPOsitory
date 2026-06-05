@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.3.6
+- Fix: shrunk players can pistol-whip and melee-bonk others over again. The game's knockdown gate needs a held weapon's impact velocity ≥ 6, but a tiny player swings on a smaller radius so it never gets there. Scale the weapon's tracked impact velocity back up by ~1/scale (capped) for shrunk holders — applies to guns and melee/equippable weapons, and only affects the knock-or-not decision, not damage or break force. Carried valuables/props keep vanilla behaviour.
+
 ## 1.3.5
 - Fix: held guns sit at hand height again instead of riding up near the head. The real cause was ScalerCore zeroing the gun's built-in downward grab offset (`grabVerticalOffset -0.2`) for shrunk players; 1.3.4's aim-pitch change couldn't affect height. Now restore a proportional drop (`-0.2 * scale`) for guns held by shrunk players.
 
