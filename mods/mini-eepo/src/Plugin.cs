@@ -192,32 +192,11 @@ namespace MiniEepo
                     harmony.Patch(pgoFixed, postfix: new HarmonyMethod(typeof(HeldGunStabilizationPatch), nameof(HeldGunStabilizationPatch.Postfix)));
             }
 
-            // Held-gun puller re-lift. REPO's StartGrabbingPhysObject bakes a -camera.up*0.3 offset
-            // on forceGrabPoint items, drooping shrunk players' guns toward the floor. We used to
-            // counter it with a +0.3 lift (gated to guns). ScalerCore 0.6.1 added its own
-            // ForceGrabPointVerticalScalePatch — a Postfix on the SAME method that lifts guns by
-            // 0.3*(1-factor). When that's present our lift stacks on top and the gun floats up /
-            // "shoots upward". So only register ours when ScalerCore isn't already doing it (older
-            // ScalerCore < 0.6.1).
-            bool scalerLiftsGuns = false;
-            foreach (var asm in System.AppDomain.CurrentDomain.GetAssemblies())
-            {
-                if (asm.GetName().Name != "ScalerCore") continue;
-                foreach (var t in asm.GetTypes())
-                    if (t.Name == "ForceGrabPointVerticalScalePatch") { scalerLiftsGuns = true; break; }
-                break;
-            }
-            if (scalerLiftsGuns)
-                Log.LogInfo("[GunLift] ScalerCore handles gun puller height — skipping our lift (avoids double-lift / upward droop)");
-            else
-            {
-                var startGrab = AccessTools.Method(typeof(PhysGrabber), "StartGrabbingPhysObject");
-                if (startGrab != null)
-                {
-                    harmony.Patch(startGrab, postfix: new HarmonyMethod(typeof(GrabPullerOffsetFixForGuns), nameof(GrabPullerOffsetFixForGuns.Postfix)));
-                    Log.LogInfo("[GunLift] Registered gun puller re-lift (ScalerCore pre-0.6.1 doesn't lift guns)");
-                }
-            }
+            // Held-gun height is handled by HeldGunStabilizationPatch above (our SolidAim port),
+            // registered only when SolidAim is absent. We no longer add a separate puller "lift" —
+            // it over-corrected and held guns too high. Setting the gun's aimVerticalOffset plus a
+            // strong grab (exactly as SolidAim does) keeps the gun at eye level without any
+            // positional lift, so there's nothing version-gated to register here.
 
             // Cart push recoil. The game's PhysGrabCart.CartSteer parks the cart a fixed 2–2.5m
             // (3–4 sprinting) in front of the grabber. ScalerCore's CartSteer transpiler routes that
@@ -759,40 +738,54 @@ namespace MiniEepo
         }
     }
 
-    // SolidAim-style stabilization for held guns when the local player is shrunk. Without this,
-    // shotguns/heavy guns droop because the grab spring isn't strong enough vs gravity torque
-    // for a 40%-scale player whose grab strength is reduced. Applies override-mass + override-
-    // grab-strength + rotation slerp toward camera every FixedUpdate (overrides are timed at
-    // 0.1s so they need re-application). Mirrors jangnana/SolidAim's ApplyAimStabilization.
+    // Held-gun stabilization for a shrunk local player — a faithful port of jangnana/SolidAim's
+    // ApplyAimStabilization. This is what keeps guns at the right HEIGHT and angle: REPO holds a
+    // gun by pulling it toward the grab puller and pitching it by ItemGun.aimVerticalOffset, but a
+    // 40%-scale player has reduced grab strength so heavy guns droop, and ScalerCore zeroes the
+    // gun's built-in downward grab offset for scaled players so the gun rides up. Setting the gun's
+    // aimVerticalOffset + a strong, timed grab/torque override and slerping rotation toward the
+    // camera every FixedUpdate reproduces SolidAim's proven hold. (We previously layered a separate
+    // puller "lift" on top, which over-corrected and held guns too high — removed in favour of this.)
     //
     // No [HarmonyPatch] attribute — registered manually in Plugin.Awake only when SolidAim is
-    // absent. Otherwise PhysGrabObject.FixedUpdate fires per PGO at 50Hz and even an early-return
-    // postfix has Harmony invocation overhead worth avoiding on heavy scenes.
+    // absent (when it's present we defer to it entirely). PhysGrabObject.FixedUpdate fires per PGO
+    // at 50Hz, so the per-call work is kept minimal and gated behind a cached gun check.
     internal static class HeldGunStabilizationPatch
     {
-        // Cache ItemGun presence per PGO. GetComponent allocates and is the most expensive check
-        // here; ItemGun never appears/disappears on a live PGO, so look it up once and reuse.
-        // Without this cache, every melee weapon / valuable / prop pays a GetComponent on every
+        // Cache the ItemGun per PGO (null when not a gun). GetComponent allocates and is the most
+        // expensive check here; ItemGun never appears/disappears on a live PGO, so resolve once and
+        // reuse. Without this, every melee weapon / valuable / prop pays a GetComponent every
         // FixedUpdate (50Hz) — heavy levels and segmented melee items tanked frame time.
-        private static readonly Dictionary<int, bool> _isGun = new Dictionary<int, bool>();
+        private static readonly Dictionary<int, ItemGun?> _gun = new Dictionary<int, ItemGun?>();
+
+        // PlayerAvatar.isCrouching is internal — reflect it once (matches SolidAim, which does the
+        // same). SolidAim eases the aim pitch when crouched so the gun doesn't clip the floor.
+        private static System.Reflection.FieldInfo? _isCrouchingField;
 
         internal static void Postfix(PhysGrabObject __instance)
         {
             // Cheapest/most-discriminating check first: most PGOs aren't guns, so reject them
             // before touching SemiFunc or any list scans.
             int id = __instance.GetInstanceID();
-            if (!_isGun.TryGetValue(id, out bool isGun))
+            if (!_gun.TryGetValue(id, out var gun))
             {
-                isGun = __instance.GetComponent<ItemGun>() != null;
-                _isGun[id] = isGun;
+                gun = __instance.GetComponent<ItemGun>();
+                _gun[id] = gun;
             }
-            if (!isGun) return;
+            if (gun == null) return;
 
             var local = SemiFunc.PlayerAvatarLocal();
             if (local == null) return;
             float scale = local.transform.localScale.x;
             if (scale > 0.99f) return; // not shrunk — let vanilla physics run
             if (!__instance.playerGrabbing.Contains(local.physGrabber)) return;
+
+            // SolidAim's lever: ease the gun's aim pitch (default -5) so it sits at eye level rather
+            // than riding up, then hold it there with a strong, short-timed grab/torque override.
+            _isCrouchingField ??= AccessTools.Field(typeof(PlayerAvatar), "isCrouching");
+            bool crouching = _isCrouchingField != null && (bool)_isCrouchingField.GetValue(local);
+            gun.aimVerticalOffset = crouching ? -1f : -3f;
+            gun.torqueMultiplier = 2f;
 
             __instance.OverrideMass(0.25f, 0.1f);
             __instance.OverrideGrabStrength(2f, 0.1f);
@@ -807,53 +800,25 @@ namespace MiniEepo
         }
     }
 
-    // ScalerCore's GrabVerticalPositionScalePatch handles puller height correctly for valuables,
-    // but guns still droop because the baked-in `- camera.up * 0.3` offset on forceGrabPoint items
-    // pulls them below the shrunken eye line. Re-lift only for guns so valuables keep ScalerCore's
-    // natural feel.
-    //
-    // The lift must SCALE with how shrunk the player is — `0.3 * (1 - factor)` — exactly matching
-    // ScalerCore 0.6.1's ForceGrabPointVerticalScalePatch. A flat `0.3` fully cancels the game's
-    // `-0.3` droop (net 0), but ScalerCore deliberately leaves partial droop (e.g. -0.12 at 0.4
-    // scale) so a tiny player's gun sits naturally. The flat lift held guns ~0.12 too high — the
-    // "guns held higher than usual" bug on pre-0.6.1 ScalerCore where this patch is the only lifter.
-    //
-    // No [HarmonyPatch] attribute — registered manually in Plugin.Awake ONLY when ScalerCore lacks
-    // its own ForceGrabPointVerticalScalePatch (added in 0.6.1). On 0.6.1+ ScalerCore lifts guns
-    // itself, so registering ours too would double-lift and make the gun shoot upward.
-    internal static class GrabPullerOffsetFixForGuns
-    {
-        internal static void Postfix(PhysGrabber __instance, PhysGrabObject ___grabbedPhysGrabObject)
-        {
-            var pa = __instance.playerAvatar;
-            if (pa == null) return;
-            float factor = pa.transform.localScale.x;
-            if (factor > 0.99f) return; // not shrunk
-            var grabbed = ___grabbedPhysGrabObject;
-            if (grabbed == null || grabbed.GetComponent<ItemGun>() == null) return;
-            var puller = __instance.physGrabPointPuller;
-            if (puller == null) return;
-            var cam = Camera.main;
-            if (cam == null) return;
-            Vector3 lift = cam.transform.up * (0.3f * (1f - factor));
-            puller.position += lift;
-            __instance.physGrabPointPlane.position += lift;
-        }
-    }
-
     // Postfix on ScalerCore's CartHandledDistancePatch.ScalePullDist — the standoff scaler its
     // CartSteer transpiler injects around PhysGrabCart's fixed 2–2.5m push distance. ScalerCore only
     // nudges that standoff to ~0.91 for a shrunk grabber, so a tiny player keeps a near-full standoff;
     // the cart then sweeps a large arc and its collider shoves them on turns/stops. Re-scale the
     // standoff toward the player's own size so the cart hugs proportionally close and stops recoiling.
-    // Strength is how far we pull toward fully-proportional (ScalerCore uses 0.15; 0.85 ≈ proportional
-    // with a small safety gap so the cart never clips the player). Tune in-game if it feels off.
+    //
+    // The scaled standoff MUST match ScalerCore's grab-beam distance, which GrabDistanceScalePatch
+    // multiplies by a flat 0.7 for a scaled player. If the cart parks closer than where the grab beam
+    // wants it, the two pull against each other along the push axis and the player jitters fore-aft
+    // while moving (the steering force only exists while moving, so it's smooth when standing still).
+    // Strength = 0.5 makes our multiplier Lerp(1, factor, 0.5) = (1+factor)/2 = 0.7 at the default
+    // 0.4 scale — i.e. aligned with the grab beam — so cart-park and grab-pull agree and the jitter
+    // goes away while the standoff is still far below the 0.91 that caused the shove. Tune in-game.
     //
     // No [HarmonyPatch] attribute — registered manually in Plugin.Awake only when ScalerCore exposes
     // the method, so a ScalerCore refactor degrades to "no change" rather than a load error.
     internal static class CartStandoffShrinkPatch
     {
-        private const float Strength = 0.85f;
+        private const float Strength = 0.5f;
 
         internal static void Postfix(ref float __result, float d, PhysGrabber grabber)
         {
