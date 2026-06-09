@@ -43,6 +43,7 @@ namespace ForcedFriendship
             var harmony = new Harmony("darkharasho.ForcedFriendship");
             harmony.PatchAll();
             Log.LogInfo($"ForcedFriendship v{PluginInfo.PLUGIN_VERSION} loaded.");
+            gameObject.AddComponent<ForcedFriendshipDriver>();
         }
 
         /// <summary>
@@ -52,6 +53,8 @@ namespace ForcedFriendship
         /// </summary>
         internal static bool IsInGameplay()
         {
+            // Require being in a Photon room first — at startup RunManager.levelCurrent has a
+            // non-lobby default that would otherwise wrongly read as "in gameplay".
             if (!PhotonNetwork.InRoom) return false;
             var rm = RunManager.instance;
             if (rm == null) return false;
