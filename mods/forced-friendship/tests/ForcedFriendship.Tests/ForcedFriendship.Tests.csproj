@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>ForcedFriendship.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
+    <PackageReference Include="xunit" Version="2.6.6" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.5.6" />
+    <PackageReference Include="BepInEx.Core" Version="5.4.21.0" />
+  </ItemGroup>
+
+  <!--
+    Copy BepInEx.dll into test output so xUnit can load BepInEx types at runtime if
+    a test ever touches them. BepInEx.Core.targets intentionally strips it (mod
+    assemblies are loaded by the game at runtime, which provides BepInEx.dll). The
+    path version (5.4.20) is the BepInEx.BaseLib transitive of BepInEx.Core 5.4.21.0
+    — update if the package bumps.
+  -->
+  <Target Name="CopyBepInExForTests" AfterTargets="Build">
+    <Copy
+      SourceFiles="$(NuGetPackageRoot)bepinex.baselib/5.4.20/lib/netstandard2.0/BepInEx.dll"
+      DestinationFolder="$(OutputPath)"
+      SkipUnchangedFiles="true" />
+  </Target>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\ForcedFriendship.csproj" />
+  </ItemGroup>
+
+</Project>
