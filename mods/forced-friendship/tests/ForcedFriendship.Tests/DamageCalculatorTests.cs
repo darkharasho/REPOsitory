@@ -28,4 +28,105 @@ public class DamageCalculatorTests
     {
         Assert.Equal(expectedBand, DamageCalculator.Band(distance, safeDistance: 15f, bandWidth: 8f));
     }
+
+    // --- Evaluate ---
+    // Settings used below: enabled, safeDistance=15, bandWidth=8, damagePerBand=5
+
+    private static DamageSettings Settings(bool enabled = true) =>
+        new DamageSettings(enabled, safeDistance: 15f, bandWidth: 8f, damagePerBand: 5);
+
+    [Fact]
+    public void Evaluate_player_within_safe_radius_takes_no_damage()
+    {
+        var players = new[]
+        {
+            new PlayerState(0f, 0f, 0f, alive: true),
+            new PlayerState(10f, 0f, 0f, alive: true), // 10 units away -> safe
+        };
+        var result = DamageCalculator.Evaluate(players, Settings());
+        Assert.Equal(new[] { 0, 0 }, result);
+    }
+
+    [Fact]
+    public void Evaluate_uses_nearest_living_other_player()
+    {
+        var players = new[]
+        {
+            new PlayerState(0f, 0f, 0f, alive: true),
+            new PlayerState(100f, 0f, 0f, alive: true), // far
+            new PlayerState(31f, 0f, 0f, alive: true),  // nearest -> band 3 -> 15 dmg
+        };
+        var result = DamageCalculator.Evaluate(players, Settings());
+        Assert.Equal(15, result[0]);
+    }
+
+    [Fact]
+    public void Evaluate_ignores_dead_player_as_a_safe_anchor()
+    {
+        var players = new[]
+        {
+            new PlayerState(0f, 0f, 0f, alive: true),
+            new PlayerState(5f, 0f, 0f, alive: false), // dead, nearby -> does NOT make safe
+            new PlayerState(31f, 0f, 0f, alive: true), // nearest living -> band 3 -> 15 dmg
+        };
+        var result = DamageCalculator.Evaluate(players, Settings());
+        Assert.Equal(15, result[0]);
+    }
+
+    [Fact]
+    public void Evaluate_never_damages_a_dead_player()
+    {
+        var players = new[]
+        {
+            new PlayerState(0f, 0f, 0f, alive: false),  // dead -> 0 regardless of distance
+            new PlayerState(100f, 0f, 0f, alive: true),
+        };
+        var result = DamageCalculator.Evaluate(players, Settings());
+        Assert.Equal(0, result[0]);
+    }
+
+    [Fact]
+    public void Evaluate_lone_living_player_takes_no_damage()
+    {
+        var players = new[]
+        {
+            new PlayerState(0f, 0f, 0f, alive: true),    // only living player
+            new PlayerState(100f, 0f, 0f, alive: false), // everyone else dead
+        };
+        var result = DamageCalculator.Evaluate(players, Settings());
+        Assert.Equal(0, result[0]);
+    }
+
+    [Fact]
+    public void Evaluate_single_player_list_takes_no_damage()
+    {
+        var players = new[] { new PlayerState(0f, 0f, 0f, alive: true) };
+        var result = DamageCalculator.Evaluate(players, Settings());
+        Assert.Equal(new[] { 0 }, result);
+    }
+
+    [Fact]
+    public void Evaluate_disabled_returns_all_zero()
+    {
+        var players = new[]
+        {
+            new PlayerState(0f, 0f, 0f, alive: true),
+            new PlayerState(100f, 0f, 0f, alive: true), // would be heavily damaged if enabled
+        };
+        var result = DamageCalculator.Evaluate(players, Settings(enabled: false));
+        Assert.Equal(new[] { 0, 0 }, result);
+    }
+
+    [Fact]
+    public void Evaluate_returns_one_entry_per_player_with_symmetric_damage()
+    {
+        // Two living players 31 apart: each is the other's nearest -> both band 3 -> 15.
+        var players = new[]
+        {
+            new PlayerState(0f, 0f, 0f, alive: true),
+            new PlayerState(31f, 0f, 0f, alive: true),
+        };
+        var result = DamageCalculator.Evaluate(players, Settings());
+        Assert.Equal(new[] { 15, 15 }, result);
+    }
 }

@@ -59,5 +59,41 @@ namespace ForcedFriendship
             if (bandWidth <= 0f) return 1;
             return (int)Math.Floor((distance - safeDistance) / bandWidth) + 1;
         }
+
+        /// <summary>
+        /// Returns the HP to apply to each player this tick (same order/length as
+        /// <paramref name="players"/>). A living player is damaged by the band of the
+        /// distance to its nearest living OTHER player; dead players neither anchor
+        /// others nor take damage; a player with no living other player takes none.
+        /// </summary>
+        public static int[] Evaluate(IReadOnlyList<PlayerState> players, in DamageSettings s)
+        {
+            var result = new int[players.Count];
+            if (!s.Enabled) return result;
+
+            for (int i = 0; i < players.Count; i++)
+            {
+                PlayerState self = players[i];
+                if (!self.Alive) continue;
+
+                float nearest = float.PositiveInfinity;
+                for (int j = 0; j < players.Count; j++)
+                {
+                    if (j == i) continue;
+                    PlayerState other = players[j];
+                    if (!other.Alive) continue;
+
+                    float d = Distance(self, other);
+                    if (d < nearest) nearest = d;
+                }
+
+                if (float.IsPositiveInfinity(nearest)) continue; // no living other player
+
+                int band = Band(nearest, s.SafeDistance, s.BandWidth);
+                result[i] = band * s.DamagePerBand;
+            }
+
+            return result;
+        }
     }
 }
