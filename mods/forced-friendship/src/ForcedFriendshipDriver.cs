@@ -61,7 +61,10 @@ namespace ForcedFriendship
                 if (damage[i] <= 0) continue;
                 PlayerAvatar pa = _avatars[i];
                 if (pa.playerHealth == null) continue;
-                pa.playerHealth.HurtOther(damage[i], pa.transform.position, savingGrace: false);
+                // Position-independent DoT: pass Vector3.zero so HurtOtherRPC's <2f proximity
+                // guard never drops a tick for a fast-moving remote player whose host-side
+                // position lags. (The game uses Vector3.zero for non-positional damage too.)
+                pa.playerHealth.HurtOther(damage[i], Vector3.zero, savingGrace: false);
             }
         }
     }
