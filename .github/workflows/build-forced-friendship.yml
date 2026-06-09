@@ -1,0 +1,28 @@
+name: Build ForcedFriendship
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "mods/forced-friendship/**"
+      - ".github/workflows/build-forced-friendship.yml"
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "mods/forced-friendship/**"
+      - ".github/workflows/build-forced-friendship.yml"
+
+jobs:
+  build:
+    runs-on: self-hosted
+    defaults:
+      run:
+        working-directory: mods/forced-friendship
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: |
+          dotnet build ForcedFriendship.csproj \
+            --configuration Release \
+            /p:GameDir="/var/mnt/data/SteamLibrary/steamapps/common/REPO/"
