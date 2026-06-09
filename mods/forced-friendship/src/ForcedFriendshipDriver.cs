@@ -1,5 +1,5 @@
 using System.Collections.Generic;
-using System.Reflection;
+using HarmonyLib;
 using Photon.Pun;
 using UnityEngine;
 
@@ -13,18 +13,15 @@ namespace ForcedFriendship
     internal class ForcedFriendshipDriver : MonoBehaviour
     {
         // PlayerAvatar.deadSet / .isDisabled are 'internal' in Assembly-CSharp and this mod
-        // builds against the un-publicized game DLL, so they are read via cached reflection.
-        private static readonly FieldInfo DeadSetField =
-            typeof(PlayerAvatar).GetField("deadSet", BindingFlags.Instance | BindingFlags.NonPublic);
-        private static readonly FieldInfo IsDisabledField =
-            typeof(PlayerAvatar).GetField("isDisabled", BindingFlags.Instance | BindingFlags.NonPublic);
+        // builds against the un-publicized game DLL, so they are read via cached field-ref delegates.
+        private static readonly AccessTools.FieldRef<PlayerAvatar, bool> DeadSetRef =
+            AccessTools.FieldRefAccess<PlayerAvatar, bool>("deadSet");
+        private static readonly AccessTools.FieldRef<PlayerAvatar, bool> IsDisabledRef =
+            AccessTools.FieldRefAccess<PlayerAvatar, bool>("isDisabled");
 
         private float _accum;
         private readonly List<PlayerState> _states = new List<PlayerState>();
         private readonly List<PlayerAvatar> _avatars = new List<PlayerAvatar>();
-
-        private static bool GetBool(FieldInfo field, PlayerAvatar pa) =>
-            field != null && (bool)field.GetValue(pa);
 
         private void Update()
         {
@@ -47,7 +44,7 @@ namespace ForcedFriendship
             {
                 if (pa == null) continue;
                 Vector3 pos = pa.transform.position;
-                bool alive = !GetBool(DeadSetField, pa) && !GetBool(IsDisabledField, pa);
+                bool alive = !DeadSetRef(pa) && !IsDisabledRef(pa);
                 _states.Add(new PlayerState(pos.x, pos.y, pos.z, alive));
                 _avatars.Add(pa);
             }
