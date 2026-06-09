@@ -58,19 +58,23 @@ world-unit scale is a feel decision. Example: at `SafeDistance=15`,
 
 ## Multiplayer — host-authoritative
 
-Reuse the established monorepo `SettingsSyncer` pattern (as in mini-eepo /
-upgrade-limiter):
+The host is the sole authority: only the host runs the damage tick loop, computes
+distances, and applies damage to every player. R.E.P.O.'s
+`PlayerHealth.Hurt` has a `!photonView.IsMine` guard, so the host cannot damage a
+remote player with it — damage is applied via `PlayerHealth.HurtOther(damage,
+hurtPosition, savingGrace)`, which RPCs the hit to the owning client.
 
-- The host owns all five settings and pushes them to Photon room properties on
-  room join and on host migration, with `_lastPushed*` dedup to avoid redundant
-  broadcasts.
-- Clients pull host settings into `Active*` mirror fields and ignore their own
-  local config while in a room. On leaving the room, clients reset to local
-  config.
-- Only the host computes distances and applies damage. Clients never run the
-  damage tick loop.
-- Solo play (not in a Photon room) uses local config directly via the same
-  `Active*` mirrors.
+Because the host is the only side that reads the settings and applies damage, no
+Photon room-property config sync is needed. The host reads its own BepInEx config
+directly each tick (which also gives live config reload for free); clients never
+read the settings and never tick. This is inherently host-authoritative — only
+the host's settings matter — without the `SettingsSyncer` push/pull machinery
+used by mini-eepo / upgrade-limiter (those mods need it because their effect is
+applied per-client; here it is not).
+
+Solo play does not run the loop: `IsInGameplay()` requires being in a Photon
+room, and a lone player has no living other player anyway, so the calculator
+would return zero damage regardless.
 
 ## Activity gating
 
@@ -91,13 +95,12 @@ safe anchors for other players, and they are never themselves damaged.
   Output: a per-player damage amount for this tick. All band math, nearest-of-
   many selection, dead-player exclusion, solo/last-alive handling, and the
   disabled short-circuit live here.
-- **MonoBehaviour tick driver** — owns the `TickInterval` accumulator, gathers
-  the live player snapshot from `GameDirector.instance.PlayerList`, calls
-  `DamageCalculator`, and applies results via `playerHealth.Hurt`. Thin glue.
-- **`SettingsSyncer`** — Photon room-property push/pull, `_lastPushed` dedup,
-  `Active*` mirrors, host/room state transitions. Mirrors the existing mods.
-- **`Plugin`** — config binding, `Active*` field declarations, Harmony bootstrap,
-  wiring `SettingChanged` handlers to the syncer.
+- **`ForcedFriendshipDriver`** (MonoBehaviour) — owns the `TickInterval`
+  accumulator, gates on host + `IsInGameplay()`, gathers the live player snapshot
+  from `GameDirector.instance.PlayerList`, calls `DamageCalculator`, and applies
+  results via `playerHealth.HurtOther`. Thin glue.
+- **`Plugin`** — config binding, `IsInGameplay()` helper, Harmony bootstrap, and
+  registering the driver component.
 
 This keeps all game/network coupling in thin shells around a fully unit-tested
 calculator.
