@@ -6,6 +6,18 @@ A R.E.P.O. mod that punishes wandering off alone. If you aren't within a configu
 
 Config file: `BepInEx/config/darkharasho.ForcedFriendship.cfg`
 
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `Enabled` | `true` | Master on/off switch |
+| `SafeDistance` | `15` | Units within which the nearest living player keeps you safe |
+| `BandWidth` | `8` | Units per additional damage band beyond the safe radius |
+| `DamagePerBand` | `5` | HP per tick, multiplied by the band number |
+| `TickInterval` | `2.0` | Seconds between damage evaluations |
+
+Only the host's settings apply in multiplayer — the host computes distances and
+applies damage to everyone. The mod is active during level gameplay only (not the
+shop, truck, or lobby), and dead players are never damaged.
+
 ## Dependencies
 
 - [BepInExPack](https://thunderstore.io/c/repo/p/BepInEx/BepInExPack/)
