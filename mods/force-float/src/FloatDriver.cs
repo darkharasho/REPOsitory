@@ -5,15 +5,17 @@ namespace ForceFloat
 {
     /// <summary>
     /// Keeps every player permanently floating during levels by reproducing the Zero Gravity
-    /// Staff's effect (<c>SemiAffectZeroGravity</c>) frame-for-frame on each living player —
-    /// the same public <c>PhysGrabObject</c> levers and the same constants the game uses, rather
-    /// than spawning the effect prefab (which isn't loaded in memory unless a zero-gravity item
-    /// is present).
+    /// Staff's effect (<c>SemiAffectZeroGravity</c>) frame-for-frame, with the SAME master/local
+    /// split the staff uses:
+    ///   * The staff's effect object exists on EVERY client. Per-client work (engaging tumble for
+    ///     your own avatar, anti-gravity, steering with your own camera) runs locally on each
+    ///     machine — that's why every player sees themselves floating and can steer.
+    ///   * Physics simulation is master-authoritative (<c>PhysGrabObject.FixedUpdate</c> returns on
+    ///     non-masters), so the zero-gravity / drag / lift forces for ALL players are applied by the
+    ///     host, which streams the resulting positions to everyone.
     ///
-    /// Only the master client / singleplayer host drives it: tumble physics is master-authoritative
-    /// (<c>PlayerTumble.FixedUpdate</c> returns on non-masters), so the host floats everyone. That
-    /// makes the host authoritative ("host wins") and lets clients float without the mod installed.
-    /// Dead players are never touched (their head body would fight the forces and shake the screen).
+    /// Requires the mod on every client (each client engages its own avatar). Dead players are
+    /// never touched (their head body would fight the forces and shake the screen).
     /// </summary>
     public class FloatDriver : MonoBehaviour
     {
@@ -24,9 +26,8 @@ namespace ForceFloat
         private const float FollowRotationFactor = 20f;
         private const float LiftPerSecond = 5f;                       // SemiFunc.PerSecond(5f, ...)
         private float _liftAccum;
+        private float _logAccum;
 
-        // Internal game fields → cached field-ref delegates (this mod builds against the
-        // un-publicized DLL; same pattern as ForcedFriendship/PlayerLiveness).
         private static readonly AccessTools.FieldRef<PlayerAvatar, PlayerTumble> AvatarTumbleRef =
             AccessTools.FieldRefAccess<PlayerAvatar, PlayerTumble>("tumble");
         private static readonly AccessTools.FieldRef<PlayerAvatar, bool> AvatarDeadSetRef =
@@ -52,39 +53,48 @@ namespace ForceFloat
             return SemiFunc.RunIsLevel();
         }
 
-        private static bool IsAlive(PlayerAvatar pa) => !AvatarDeadSetRef(pa) && !AvatarIsDisabledRef(pa);
-
-        private bool Active()
+        private bool Enabled()
         {
             if (!Plugin.Enabled.Value) return false;
-            if (!ShouldFloat()) return false;
-            // Only the host drives the float (tumble physics is master-authoritative).
-            return SemiFunc.IsMasterClientOrSingleplayer();
+            return ShouldFloat();
         }
 
-        /// <summary>Keep every living player tumbling + wings on. (Cheap, runs every frame.)</summary>
+        private static bool IsAlive(PlayerAvatar pa) => !AvatarDeadSetRef(pa) && !AvatarIsDisabledRef(pa);
+
+        /// <summary>Keep a player tumbling + wings on (the part the game does on the master).</summary>
+        private static void EnsureTumbling(PlayerAvatar pa)
+        {
+            var tumble = AvatarTumbleRef(pa);
+            if (tumble == null) return;
+            if (!AvatarIsTumblingRef(pa))
+                tumble.TumbleRequest(true, false);
+            tumble.TumbleOverrideTime(0.5f);
+            if (!AvatarWingsActiveRef(pa))
+                pa.UpgradeTumbleWingsVisualsActive();
+        }
+
         private void Update()
         {
             try
             {
-                if (!Active()) return;
-                var director = GameDirector.instance;
-                if (director == null) return;
+                if (!Enabled()) return;
 
-                var list = director.PlayerList;
-                for (int i = 0; i < list.Count; i++)
+                // Master keeps every living player tumbling (TumbleRequest routes through the
+                // master and broadcasts to all, so this also covers everyone's state).
+                if (SemiFunc.IsMasterClientOrSingleplayer() && GameDirector.instance != null)
                 {
-                    var pa = list[i];
-                    if (pa == null || !IsAlive(pa)) continue;
-                    var tumble = AvatarTumbleRef(pa);
-                    if (tumble == null) continue;
-
-                    if (!AvatarIsTumblingRef(pa))
-                        tumble.TumbleRequest(true, false);
-                    tumble.TumbleOverrideTime(0.5f);
-
-                    if (!AvatarWingsActiveRef(pa))
-                        pa.UpgradeTumbleWingsVisualsActive();
+                    var list = GameDirector.instance.PlayerList;
+                    for (int i = 0; i < list.Count; i++)
+                    {
+                        var pa = list[i];
+                        if (pa != null && IsAlive(pa)) EnsureTumbling(pa);
+                    }
+                }
+                else
+                {
+                    // Non-master client: at minimum keep our OWN avatar tumbling.
+                    var me = PlayerAvatar.instance;
+                    if (me != null && IsAlive(me)) EnsureTumbling(me);
                 }
             }
             catch (System.Exception e)
@@ -93,70 +103,103 @@ namespace ForceFloat
             }
         }
 
-        /// <summary>The physics: cancel the tumble body's gravity, add drag + lift, and steer the host's own avatar.</summary>
         private void FixedUpdate()
         {
             try
             {
-                if (!Active()) return;
-                var director = GameDirector.instance;
-                if (director == null) return;
+                if (!Enabled()) return;
 
-                // Lift impulse fires LiftPerSecond times a second, like SemiFunc.PerSecond(5f, ...).
                 bool liftTick = false;
                 _liftAccum += Time.fixedDeltaTime;
                 float liftStep = 1f / LiftPerSecond;
                 if (_liftAccum >= liftStep) { _liftAccum -= liftStep; liftTick = true; }
 
-                var localCam = PlayerAvatar.instance != null ? PlayerAvatar.instance.localCamera : null;
-                Transform? camT = localCam != null ? localCam.GetOverrideTransform() : null;
-
-                var list = director.PlayerList;
-                for (int i = 0; i < list.Count; i++)
+                // --- Master: simulate zero-gravity + drag + lift for every living player ---
+                if (SemiFunc.IsMasterClientOrSingleplayer() && GameDirector.instance != null)
                 {
-                    var pa = list[i];
-                    if (pa == null || !IsAlive(pa)) continue;
-                    var tumble = AvatarTumbleRef(pa);
-                    if (tumble == null) continue;
-                    var pgo = TumblePhysGrabObjectRef(tumble);
-                    if (pgo == null || pgo.rb == null) continue;
-                    var rb = pgo.rb;
-
-                    // Zero gravity + drift drag (these set short timers, so re-apply every tick).
-                    pgo.OverrideZeroGravity();
-                    pgo.OverrideDrag(DriftDrag);
-                    pgo.OverrideAngularDrag(DriftAngularDrag);
-
-                    // Gentle lift so a grounded body actually rises (exact staff formula).
-                    if (liftTick)
+                    var list = GameDirector.instance.PlayerList;
+                    for (int i = 0; i < list.Count; i++)
                     {
-                        rb.AddForce(Vector3.up * (0.5f / LiftPerSecond) * (rb.mass * 0.2f), ForceMode.Impulse);
-                        rb.AddTorque(Random.insideUnitSphere.normalized * 0.01f / LiftPerSecond * rb.mass, ForceMode.Impulse);
-                    }
-
-                    // Steering: only the local avatar (the host's own) — the host has no camera for
-                    // remote players, same limitation as the real staff effect.
-                    if (camT != null && AvatarIsLocalRef(pa))
-                    {
-                        Quaternion target = Quaternion.LookRotation(camT.forward, Vector3.up);
-                        Vector3 torque = SemiFunc.PhysFollowRotation(pgo.transform, target, rb, FollowRotationFactor);
-                        rb.AddTorque(torque, ForceMode.Impulse);
-
-                        Vector3 input = AvatarInputDirectionRawRef(pa);
-                        Vector3 dir = camT.forward * input.z + camT.right * input.x;
-                        if (dir.sqrMagnitude > 1f) dir.Normalize();
-                        if (dir.sqrMagnitude >= 0.0001f)
-                            rb.AddForce(dir * DriftForce * rb.mass, ForceMode.Force);
-
-                        if (PlayerController.instance != null)
-                            PlayerController.instance.AntiGravity(0.1f);
+                        var pa = list[i];
+                        if (pa == null || !IsAlive(pa)) continue;
+                        ApplyPhysics(pa, liftTick);
                     }
                 }
+
+                // --- Every client: steer MY OWN avatar with my camera (anti-gravity + drift) ---
+                var me = PlayerAvatar.instance;
+                if (me != null && IsAlive(me) && me.localCamera != null)
+                {
+                    if (PlayerController.instance != null)
+                        PlayerController.instance.AntiGravity(0.1f);
+                    SteerLocal(me);
+                }
+
+                MaybeLog();
             }
             catch (System.Exception e)
             {
                 Plugin.Log.LogError($"FloatDriver.FixedUpdate: {e}");
             }
+        }
+
+        private void ApplyPhysics(PlayerAvatar pa, bool liftTick)
+        {
+            var tumble = AvatarTumbleRef(pa);
+            if (tumble == null) return;
+            var pgo = TumblePhysGrabObjectRef(tumble);
+            if (pgo == null || pgo.rb == null) return;
+            var rb = pgo.rb;
+
+            pgo.OverrideZeroGravity();
+            pgo.OverrideDrag(DriftDrag);
+            pgo.OverrideAngularDrag(DriftAngularDrag);
+
+            if (liftTick)
+            {
+                rb.AddForce(Vector3.up * (0.5f / LiftPerSecond) * (rb.mass * 0.2f), ForceMode.Impulse);
+                rb.AddTorque(Random.insideUnitSphere.normalized * 0.01f / LiftPerSecond * rb.mass, ForceMode.Impulse);
+            }
+        }
+
+        private void SteerLocal(PlayerAvatar me)
+        {
+            var tumble = AvatarTumbleRef(me);
+            if (tumble == null) return;
+            var pgo = TumblePhysGrabObjectRef(tumble);
+            if (pgo == null || pgo.rb == null) return;
+            var rb = pgo.rb;
+
+            Transform cam = me.localCamera.GetOverrideTransform();
+            if (cam == null) return;
+
+            Quaternion target = Quaternion.LookRotation(cam.forward, Vector3.up);
+            Vector3 torque = SemiFunc.PhysFollowRotation(pgo.transform, target, rb, FollowRotationFactor);
+            rb.AddTorque(torque, ForceMode.Impulse);
+
+            Vector3 input = AvatarInputDirectionRawRef(me);
+            Vector3 dir = cam.forward * input.z + cam.right * input.x;
+            if (dir.sqrMagnitude > 1f) dir.Normalize();
+            if (dir.sqrMagnitude >= 0.0001f)
+                rb.AddForce(dir * DriftForce * rb.mass, ForceMode.Force);
+        }
+
+        /// <summary>Diagnostic: log local-player float state once a second so we can see what's wrong in MP.</summary>
+        private void MaybeLog()
+        {
+            _logAccum += Time.fixedDeltaTime;
+            if (_logAccum < 1f) return;
+            _logAccum = 0f;
+            var me = PlayerAvatar.instance;
+            if (me == null) return;
+            var tumble = AvatarTumbleRef(me);
+            var pgo = tumble != null ? TumblePhysGrabObjectRef(tumble) : null;
+            var rb = pgo != null ? pgo.rb : null;
+            bool master = SemiFunc.IsMasterClientOrSingleplayer();
+            string y = rb != null ? rb.position.y.ToString("F2") : "?";
+            string kin = rb != null ? rb.isKinematic.ToString() : "?";
+            Plugin.Log.LogInfo($"[FloatDiag] master={master} local.isTumbling={AvatarIsTumblingRef(me)} " +
+                               $"wings={AvatarWingsActiveRef(me)} bodyY={y} kinematic={kin}");
         }
     }
 }
