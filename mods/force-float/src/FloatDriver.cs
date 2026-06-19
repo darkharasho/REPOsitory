@@ -19,8 +19,7 @@ namespace ForceFloat
     /// </summary>
     public class FloatDriver : MonoBehaviour
     {
-        private const float AffectTime = 2f;        // SemiAffectZeroGravity doubles it -> ~4s effective
-        private const float ReapplyInterval = 2.5f;
+        private const float AffectTime = 5f;        // SemiAffectZeroGravity doubles it -> ~10s effective
 
         private static readonly AccessTools.FieldRef<PlayerAvatar, PlayerTumble> AvatarTumbleRef =
             AccessTools.FieldRefAccess<PlayerAvatar, PlayerTumble>("tumble");
@@ -35,7 +34,10 @@ namespace ForceFloat
 
         private GameObject? _affectPrefab;
         private bool _searched;
-        private readonly Dictionary<PlayerAvatar, float> _nextApply = new Dictionary<PlayerAvatar, float>();
+        // The live effect we spawned per player, and the earliest time we may (re)try one.
+        private readonly Dictionary<PlayerAvatar, SemiAffect> _active = new Dictionary<PlayerAvatar, SemiAffect>();
+        private readonly Dictionary<PlayerAvatar, float> _nextTry = new Dictionary<PlayerAvatar, float>();
+        private const float RetryInterval = 2f;
         private float _logAccum;
 
         private static bool ShouldFloat()
@@ -65,9 +67,21 @@ namespace ForceFloat
                 {
                     var pa = list[i];
                     if (pa == null || !IsAlive(pa)) continue;
-                    if (_nextApply.TryGetValue(pa, out float next) && now < next) continue;
-                    if (ApplyFloat(prefab, pa))
-                        _nextApply[pa] = now + ReapplyInterval;
+
+                    bool tumbling = AvatarIsTumblingRef(pa);
+                    bool affectAlive = _active.TryGetValue(pa, out var existing) && existing != null;
+
+                    // Happy path: already tumbling with a live effect -> never stack another (the
+                    // overlap is what launched players through the ceiling and dropped collision).
+                    if (tumbling && affectAlive) continue;
+
+                    // Otherwise (re)try, throttled: covers expired effects AND clients whose body
+                    // wasn't network-ready on the first try (the case a cart-grab teleport "fixed").
+                    if (_nextTry.TryGetValue(pa, out float next) && now < next) continue;
+                    _nextTry[pa] = now + RetryInterval;
+
+                    var spawned = ApplyFloat(prefab, pa);
+                    if (spawned != null) _active[pa] = spawned;
                 }
 
                 MaybeLog();
@@ -78,21 +92,21 @@ namespace ForceFloat
             }
         }
 
-        private bool ApplyFloat(GameObject prefab, PlayerAvatar pa)
+        private SemiAffect? ApplyFloat(GameObject prefab, PlayerAvatar pa)
         {
             var tumble = AvatarTumbleRef(pa);
-            if (tumble == null) return false;
+            if (tumble == null) return null;
             var pgo = TumblePhysGrabObjectRef(tumble);
-            if (pgo == null) return false;
+            if (pgo == null) return null;
 
             var go = Object.Instantiate(prefab, pa.transform.position, Quaternion.identity);
             var affect = go.GetComponent<SemiAffect>();
-            if (affect == null) { Object.Destroy(go); return false; }
+            if (affect == null) { Object.Destroy(go); return null; }
 
             affect.direction = Vector3.up;
             affect.positionOfOriginalAreaOfEffect = pa.transform.position;
             affect.SetupSingleplayer(pa.transform, pgo, AffectTime, pa);
-            return true;
+            return affect;
         }
 
         /// <summary>
