@@ -12,7 +12,6 @@ namespace ForcedFriendship
     internal class BeamRenderer : MonoBehaviour
     {
         private const float BeamHeight = 1f;   // raise endpoints to chest height
-        private const float BeamWidth = 0.05f;
         private const float CartRescanInterval = 1f;
 
         private readonly Dictionary<PlayerAvatar, LineRenderer> _lines =
@@ -20,14 +19,19 @@ namespace ForcedFriendship
         private readonly List<PlayerState> _states = new List<PlayerState>();
         private readonly List<PlayerAvatar> _avatars = new List<PlayerAvatar>();
         private readonly List<PlayerAvatar> _stale = new List<PlayerAvatar>();
+        private readonly List<PhysGrabCart> _carts = new List<PhysGrabCart>();
+        private readonly List<Vec3> _cartPositions = new List<Vec3>();
 
-        private static Material? _material;
-        private PhysGrabCart? _cart;
+        // Instance-scoped so the material's lifetime matches this renderer (which BepInEx keeps
+        // alive across level loads) — avoids a destroyed shared material leaving stale beams.
+        private Material? _material;
         private float _cartRescan;
 
         private void Update()
         {
-            if (!Plugin.Enabled.Value || !Plugin.BeamsEnabled.Value || !Plugin.IsInGameplay())
+            // Beams display the host's rule, so gate on the synced ActiveEnabled, plus the local
+            // display toggle. (ActiveEnabled == local Enabled on the host / in singleplayer.)
+            if (!Plugin.ActiveEnabled || !Plugin.BeamsEnabled.Value || !Plugin.IsInGameplay())
             {
                 HideAll();
                 return;
@@ -36,11 +40,16 @@ namespace ForcedFriendship
             var list = GameDirector.instance?.PlayerList;
             if (list == null) { HideAll(); return; }
 
-            bool cartMode = Plugin.Mode.Value == AnchorMode.Cart;
+            AnchorMode mode = Plugin.ActiveMode;
+            bool cartMode = mode == AnchorMode.Cart;
+
+            // Re-scan the cart roster on an interval (or when empty); rebuild positions every frame
+            // from the cached references since carts move. Destroyed carts read as null and skip.
             _cartRescan -= Time.deltaTime;
-            if (cartMode && (_cart == null || _cartRescan <= 0f))
+            if (!cartMode) _carts.Clear(); // drop stale cart refs when not in Cart mode
+            else if (_carts.Count == 0 || _cartRescan <= 0f)
             {
-                _cart = CartLocator.FindMainCart();
+                CartLocator.FindMainCarts(_carts);
                 _cartRescan = CartRescanInterval;
             }
 
@@ -50,27 +59,38 @@ namespace ForcedFriendship
             {
                 if (pa == null) continue;
                 Vector3 pos = pa.transform.position;
-                _states.Add(new PlayerState(pos.x, pos.y, pos.z, PlayerLiveness.IsAlive(pa)));
+                _states.Add(new PlayerState(pos.x, pos.y, pos.z,
+                    PlayerLiveness.IsAlive(pa), PlayerLiveness.IsInTruck(pa)));
                 _avatars.Add(pa);
             }
 
-            bool hasCart = cartMode && _cart != null;
-            float cx = 0f, cy = 0f, cz = 0f;
-            if (hasCart) { Vector3 cp = _cart!.transform.position; cx = cp.x; cy = cp.y; cz = cp.z; }
+            _cartPositions.Clear();
+            if (cartMode)
+            {
+                foreach (PhysGrabCart c in _carts)
+                {
+                    if (c == null) continue;
+                    Vector3 cp = c.transform.position;
+                    _cartPositions.Add(new Vec3(cp.x, cp.y, cp.z));
+                }
+            }
 
             AnchorResult[] anchors =
-                DamageCalculator.ResolveAnchors(_states, Plugin.Mode.Value, hasCart, cx, cy, cz);
+                DamageCalculator.ResolveAnchors(_states, mode, _cartPositions);
 
             PlayerAvatar? local = PlayerAvatar.instance;
             bool showAll = Plugin.BeamsShowAll.Value;
-            float safe = Plugin.SafeDistance.Value;
-            float warn = Plugin.BeamsWarnPercent.Value;
+            float safe = Plugin.ActiveSafeDistance;
+            float warn = Plugin.WarnFraction;
+            float width = Plugin.BeamWidthWorld;
 
             for (int i = 0; i < _avatars.Count; i++)
             {
                 PlayerAvatar pa = _avatars[i];
                 AnchorResult a = anchors[i];
-                bool render = a.HasAnchor && (showAll || pa == local);
+                BeamZone zone = DamageCalculator.ZoneForAnchor(a, safe, warn);
+                bool render = DamageCalculator.ShouldDrawBeam(mode, zone, a.HasAnchor)
+                    && (showAll || pa == local);
                 if (!render) { HideLine(pa); continue; }
 
                 LineRenderer lr = GetLine(pa);
@@ -78,9 +98,10 @@ namespace ForcedFriendship
                 Vector3 from = new Vector3(self.X, self.Y, self.Z) + Vector3.up * BeamHeight;
                 Vector3 to = new Vector3(a.X, a.Y, a.Z) + Vector3.up * BeamHeight;
                 lr.enabled = true;
+                lr.widthMultiplier = width;
                 lr.SetPosition(0, from);
                 lr.SetPosition(1, to);
-                Color c = ZoneColor(DamageCalculator.Classify(a.Distance, safe, warn));
+                Color c = ZoneColor(zone);
                 lr.startColor = c;
                 lr.endColor = c;
             }
@@ -90,6 +111,11 @@ namespace ForcedFriendship
 
         private void OnDisable() => HideAll();
 
+        private void OnDestroy()
+        {
+            if (_material != null) Destroy(_material);
+        }
+
         private LineRenderer GetLine(PlayerAvatar pa)
         {
             if (_lines.TryGetValue(pa, out var existing) && existing != null) return existing;
@@ -98,11 +124,12 @@ namespace ForcedFriendship
             go.transform.SetParent(transform, false);
             var lr = go.AddComponent<LineRenderer>();
             lr.material = BeamMaterial();
-            lr.widthMultiplier = BeamWidth;
             lr.positionCount = 2;
             lr.numCapVertices = 2;
+            lr.numCornerVertices = 2;
             lr.useWorldSpace = true;
             lr.textureMode = LineTextureMode.Stretch;
+            lr.alignment = LineAlignment.View; // face the camera so a thin beam stays visible
             lr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             lr.receiveShadows = false;
             lr.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
@@ -134,11 +161,15 @@ namespace ForcedFriendship
             }
         }
 
-        private static Material BeamMaterial()
+        // Additive, unlit glow — mimics the soft look of the game's grab beam rather than a flat
+        // opaque line. Falls back gracefully if a shader isn't present in this Unity build.
+        private Material BeamMaterial()
         {
             if (_material == null)
             {
-                Shader shader = Shader.Find("Sprites/Default");
+                Shader shader = Shader.Find("Particles/Standard Unlit")
+                    ?? Shader.Find("Legacy Shaders/Particles/Additive")
+                    ?? Shader.Find("Sprites/Default");
                 _material = new Material(shader);
             }
             return _material;

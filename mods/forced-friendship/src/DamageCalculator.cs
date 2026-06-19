@@ -10,13 +10,16 @@ namespace ForcedFriendship
         public readonly float Y;
         public readonly float Z;
         public readonly bool Alive;
+        /// <summary>True when the player is standing in the extraction truck — a safe zone.</summary>
+        public readonly bool InTruck;
 
-        public PlayerState(float x, float y, float z, bool alive)
+        public PlayerState(float x, float y, float z, bool alive, bool inTruck = false)
         {
             X = x;
             Y = y;
             Z = z;
             Alive = alive;
+            InTruck = inTruck;
         }
     }
 
@@ -54,6 +57,21 @@ namespace ForcedFriendship
         Danger, // red — taking damage
     }
 
+    /// <summary>A Unity-free 3D point (e.g. a cart position).</summary>
+    public readonly struct Vec3
+    {
+        public readonly float X;
+        public readonly float Y;
+        public readonly float Z;
+
+        public Vec3(float x, float y, float z)
+        {
+            X = x;
+            Y = y;
+            Z = z;
+        }
+    }
+
     /// <summary>One player's resolved anchor position and distance to it.</summary>
     public readonly struct AnchorResult
     {
@@ -62,14 +80,17 @@ namespace ForcedFriendship
         public readonly float Z;
         public readonly float Distance;
         public readonly bool HasAnchor;
+        /// <summary>True when the player is in a safe zone (e.g. the truck): no damage, beam stays green.</summary>
+        public readonly bool Safe;
 
-        public AnchorResult(float x, float y, float z, float distance, bool hasAnchor)
+        public AnchorResult(float x, float y, float z, float distance, bool hasAnchor, bool safe = false)
         {
             X = x;
             Y = y;
             Z = z;
             Distance = distance;
             HasAnchor = hasAnchor;
+            Safe = safe;
         }
 
         public static AnchorResult None => new AnchorResult(0f, 0f, 0f, 0f, false);
@@ -79,6 +100,14 @@ namespace ForcedFriendship
     public static class DamageCalculator
     {
         public static float Distance(in PlayerState a, in PlayerState b)
+        {
+            float dx = a.X - b.X;
+            float dy = a.Y - b.Y;
+            float dz = a.Z - b.Z;
+            return (float)Math.Sqrt((dx * dx) + (dy * dy) + (dz * dz));
+        }
+
+        private static float Distance(in PlayerState a, in Vec3 b)
         {
             float dx = a.X - b.X;
             float dy = a.Y - b.Y;
@@ -99,18 +128,16 @@ namespace ForcedFriendship
         }
 
         /// <summary>
-        /// Resolves each player's anchor position and distance. In Buddy mode the anchor
-        /// is the nearest living OTHER player. In Cart mode every living player anchors on
-        /// the cart; if <paramref name="hasCart"/> is false, Cart mode falls back to Buddy.
-        /// Dead players get <see cref="AnchorResult.None"/>.
+        /// Resolves each player's anchor position and distance. In Buddy mode the anchor is the
+        /// nearest living OTHER player. In Cart mode every living player anchors on the NEAREST
+        /// cart in <paramref name="carts"/> (supporting multiple medium carts); if the list is
+        /// empty, Cart mode falls back to Buddy. Dead players get <see cref="AnchorResult.None"/>.
         /// </summary>
         public static AnchorResult[] ResolveAnchors(
-            IReadOnlyList<PlayerState> players,
-            AnchorMode mode, bool hasCart, float cartX, float cartY, float cartZ)
+            IReadOnlyList<PlayerState> players, AnchorMode mode, IReadOnlyList<Vec3> carts)
         {
             var result = new AnchorResult[players.Count];
-            bool useCart = mode == AnchorMode.Cart && hasCart;
-            var cart = new PlayerState(cartX, cartY, cartZ, true);
+            bool useCart = mode == AnchorMode.Cart && carts != null && carts.Count > 0;
 
             for (int i = 0; i < players.Count; i++)
             {
@@ -119,7 +146,15 @@ namespace ForcedFriendship
 
                 if (useCart)
                 {
-                    result[i] = new AnchorResult(cartX, cartY, cartZ, Distance(self, cart), true);
+                    float best = float.PositiveInfinity;
+                    int bestIdx = -1;
+                    for (int c = 0; c < carts!.Count; c++)
+                    {
+                        float d = Distance(self, carts[c]);
+                        if (d < best) { best = d; bestIdx = c; }
+                    }
+                    Vec3 cart = carts[bestIdx];
+                    result[i] = new AnchorResult(cart.X, cart.Y, cart.Z, best, true, self.InTruck);
                     continue;
                 }
 
@@ -137,7 +172,7 @@ namespace ForcedFriendship
 
                 if (nearestIdx < 0) { result[i] = AnchorResult.None; continue; }
                 PlayerState n = players[nearestIdx];
-                result[i] = new AnchorResult(n.X, n.Y, n.Z, nearest, true);
+                result[i] = new AnchorResult(n.X, n.Y, n.Z, nearest, true, self.InTruck);
             }
 
             return result;
@@ -160,7 +195,8 @@ namespace ForcedFriendship
 
         /// <summary>
         /// HP to apply per player this tick from precomputed anchors. A player with no
-        /// anchor takes none; otherwise damage = band(distance) * DamagePerBand.
+        /// anchor — or one flagged <see cref="AnchorResult.Safe"/> (e.g. in the truck) —
+        /// takes none; otherwise damage = band(distance) * DamagePerBand.
         /// </summary>
         public static int[] EvaluateDamage(IReadOnlyList<AnchorResult> anchors, in DamageSettings s)
         {
@@ -170,7 +206,7 @@ namespace ForcedFriendship
             for (int i = 0; i < anchors.Count; i++)
             {
                 AnchorResult a = anchors[i];
-                if (!a.HasAnchor) continue;
+                if (!a.HasAnchor || a.Safe) continue;
                 int band = Band(a.Distance, s.SafeDistance, s.BandWidth);
                 result[i] = band * s.DamagePerBand;
             }
@@ -179,12 +215,28 @@ namespace ForcedFriendship
         }
 
         /// <summary>
+        /// Beam color for one anchor: forced <see cref="BeamZone.Safe"/> when the player is in
+        /// a safe zone, otherwise the distance-based <see cref="Classify"/> band.
+        /// </summary>
+        public static BeamZone ZoneForAnchor(in AnchorResult a, float safeDistance, float warnPercent)
+            => a.Safe ? BeamZone.Safe : Classify(a.Distance, safeDistance, warnPercent);
+
+        /// <summary>
+        /// Whether a tether beam should be drawn at all. Requires an anchor. In Buddy mode a
+        /// Safe (green) beam is hidden — split groups that are each internally fine show no
+        /// lines; the tether only appears once someone is in the warn/danger zone. In Cart mode
+        /// the tether to the cart is always shown as a guide.
+        /// </summary>
+        public static bool ShouldDrawBeam(AnchorMode mode, BeamZone zone, bool hasAnchor)
+            => hasAnchor && (mode == AnchorMode.Cart || zone != BeamZone.Safe);
+
+        /// <summary>
         /// Buddy-mode convenience: each living player is damaged by the band of the distance
         /// to its nearest living other player. Equivalent to ResolveAnchors(Buddy) + EvaluateDamage.
         /// </summary>
         public static int[] Evaluate(IReadOnlyList<PlayerState> players, in DamageSettings s)
         {
-            AnchorResult[] anchors = ResolveAnchors(players, AnchorMode.Buddy, false, 0f, 0f, 0f);
+            AnchorResult[] anchors = ResolveAnchors(players, AnchorMode.Buddy, Array.Empty<Vec3>());
             return EvaluateDamage(anchors, s);
         }
     }

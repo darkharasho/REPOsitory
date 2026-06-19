@@ -35,6 +35,8 @@ public class DamageCalculatorTests
     private static DamageSettings Settings(bool enabled = true) =>
         new DamageSettings(enabled, safeDistance: 15f, bandWidth: 8f, damagePerBand: 5);
 
+    private static readonly Vec3[] NoCarts = System.Array.Empty<Vec3>();
+
     [Fact]
     public void Evaluate_player_within_safe_radius_takes_no_damage()
     {
@@ -161,7 +163,7 @@ public class DamageCalculatorTests
             new PlayerState(100f, 0f, 0f, alive: true),
             new PlayerState(31f, 0f, 0f, alive: true), // nearest to player 0
         };
-        var anchors = DamageCalculator.ResolveAnchors(players, AnchorMode.Buddy, hasCart: false, 0f, 0f, 0f);
+        var anchors = DamageCalculator.ResolveAnchors(players, AnchorMode.Buddy, NoCarts);
         Assert.True(anchors[0].HasAnchor);
         Assert.Equal(31f, anchors[0].Distance, precision: 4);
         Assert.Equal(31f, anchors[0].X, precision: 4); // anchored on the nearest other's position
@@ -175,7 +177,7 @@ public class DamageCalculatorTests
             new PlayerState(0f, 0f, 0f, alive: true),
             new PlayerState(5f, 0f, 0f, alive: false),
         };
-        var anchors = DamageCalculator.ResolveAnchors(players, AnchorMode.Buddy, hasCart: false, 0f, 0f, 0f);
+        var anchors = DamageCalculator.ResolveAnchors(players, AnchorMode.Buddy, NoCarts);
         Assert.False(anchors[0].HasAnchor);
     }
 
@@ -187,7 +189,7 @@ public class DamageCalculatorTests
             new PlayerState(0f, 0f, 0f, alive: false),
             new PlayerState(3f, 0f, 0f, alive: true),
         };
-        var anchors = DamageCalculator.ResolveAnchors(players, AnchorMode.Buddy, hasCart: false, 0f, 0f, 0f);
+        var anchors = DamageCalculator.ResolveAnchors(players, AnchorMode.Buddy, NoCarts);
         Assert.False(anchors[0].HasAnchor);
     }
 
@@ -199,7 +201,7 @@ public class DamageCalculatorTests
             new PlayerState(0f, 0f, 0f, alive: true),
             new PlayerState(3f, 0f, 0f, alive: true),
         };
-        var anchors = DamageCalculator.ResolveAnchors(players, AnchorMode.Cart, hasCart: true, 0f, 0f, 4f);
+        var anchors = DamageCalculator.ResolveAnchors(players, AnchorMode.Cart, new[] { new Vec3(0f, 0f, 4f) });
         Assert.Equal(4f, anchors[0].Distance, precision: 4);
         Assert.Equal(5f, anchors[1].Distance, precision: 4); // (3,0,0)->(0,0,4) = 5
         Assert.Equal(4f, anchors[0].Z, precision: 4);        // anchored on the cart
@@ -213,8 +215,24 @@ public class DamageCalculatorTests
             new PlayerState(0f, 0f, 0f, alive: true),
             new PlayerState(31f, 0f, 0f, alive: true),
         };
-        var anchors = DamageCalculator.ResolveAnchors(players, AnchorMode.Cart, hasCart: false, 0f, 0f, 0f);
+        var anchors = DamageCalculator.ResolveAnchors(players, AnchorMode.Cart, NoCarts);
         Assert.Equal(31f, anchors[0].Distance, precision: 4); // nearest other, not the (ignored) cart args
+    }
+
+    [Fact]
+    public void ResolveAnchors_cart_uses_nearest_of_multiple_carts()
+    {
+        var players = new[]
+        {
+            new PlayerState(0f, 0f, 0f, alive: true),
+            new PlayerState(50f, 0f, 0f, alive: true),
+        };
+        var carts = new[] { new Vec3(5f, 0f, 0f), new Vec3(48f, 0f, 0f) };
+        var anchors = DamageCalculator.ResolveAnchors(players, AnchorMode.Cart, carts);
+        Assert.Equal(5f, anchors[0].Distance, precision: 4);   // p0 -> first cart
+        Assert.Equal(5f, anchors[0].X, precision: 4);
+        Assert.Equal(2f, anchors[1].Distance, precision: 4);   // p1 -> second cart (nearest)
+        Assert.Equal(48f, anchors[1].X, precision: 4);
     }
 
     // --- EvaluateDamage ---
@@ -237,5 +255,67 @@ public class DamageCalculatorTests
         var anchors = new[] { new AnchorResult(0f, 0f, 0f, 100f, true) };
         var result = DamageCalculator.EvaluateDamage(anchors, Settings(enabled: false));
         Assert.Equal(new[] { 0 }, result);
+    }
+
+    // --- Truck safe zone ---
+
+    [Fact]
+    public void ResolveAnchors_marks_in_truck_player_safe()
+    {
+        var players = new[]
+        {
+            new PlayerState(0f, 0f, 0f, alive: true, inTruck: true),
+            new PlayerState(100f, 0f, 0f, alive: true),
+        };
+        var anchors = DamageCalculator.ResolveAnchors(players, AnchorMode.Buddy, NoCarts);
+        Assert.True(anchors[0].Safe);      // in truck -> safe
+        Assert.True(anchors[0].HasAnchor); // still anchored (beam can draw if the mode wants it)
+        Assert.False(anchors[1].Safe);
+    }
+
+    [Fact]
+    public void EvaluateDamage_in_truck_player_takes_no_damage_even_when_far()
+    {
+        var anchors = new[]
+        {
+            new AnchorResult(0f, 0f, 0f, distance: 100f, hasAnchor: true, safe: true),  // far but in truck
+            new AnchorResult(0f, 0f, 0f, distance: 100f, hasAnchor: true, safe: false), // far -> bleeds
+        };
+        var result = DamageCalculator.EvaluateDamage(anchors, Settings());
+        Assert.Equal(0, result[0]);
+        Assert.True(result[1] > 0);
+    }
+
+    [Fact]
+    public void ZoneForAnchor_safe_anchor_is_always_green()
+    {
+        var safeFar = new AnchorResult(0f, 0f, 0f, distance: 100f, hasAnchor: true, safe: true);
+        Assert.Equal(BeamZone.Safe, DamageCalculator.ZoneForAnchor(safeFar, safeDistance: 15f, warnPercent: 0.25f));
+    }
+
+    [Fact]
+    public void ZoneForAnchor_non_safe_anchor_uses_distance()
+    {
+        var danger = new AnchorResult(0f, 0f, 0f, distance: 100f, hasAnchor: true, safe: false);
+        Assert.Equal(BeamZone.Danger, DamageCalculator.ZoneForAnchor(danger, safeDistance: 15f, warnPercent: 0.25f));
+    }
+
+    // --- Beam visibility: Buddy hides safe beams, Cart always shows ---
+
+    [Theory]
+    [InlineData(AnchorMode.Buddy, BeamZone.Safe, false)] // 2-and-2 both safe -> no line
+    [InlineData(AnchorMode.Buddy, BeamZone.Warn, true)]
+    [InlineData(AnchorMode.Buddy, BeamZone.Danger, true)]
+    [InlineData(AnchorMode.Cart, BeamZone.Safe, true)]   // cart tether always shown
+    [InlineData(AnchorMode.Cart, BeamZone.Danger, true)]
+    public void ShouldDrawBeam_buddy_hides_safe_cart_always_shows(AnchorMode mode, BeamZone zone, bool expected)
+    {
+        Assert.Equal(expected, DamageCalculator.ShouldDrawBeam(mode, zone, hasAnchor: true));
+    }
+
+    [Fact]
+    public void ShouldDrawBeam_no_anchor_never_draws()
+    {
+        Assert.False(DamageCalculator.ShouldDrawBeam(AnchorMode.Cart, BeamZone.Danger, hasAnchor: false));
     }
 }

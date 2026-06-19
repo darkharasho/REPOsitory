@@ -14,17 +14,20 @@ namespace ForcedFriendship
         private float _accum;
         private readonly List<PlayerState> _states = new List<PlayerState>();
         private readonly List<PlayerAvatar> _avatars = new List<PlayerAvatar>();
+        private readonly List<PhysGrabCart> _carts = new List<PhysGrabCart>();
+        private readonly List<Vec3> _cartPositions = new List<Vec3>();
 
         private void Update()
         {
-            if (!Plugin.Enabled.Value) return;
+            // Damage uses the Active* rule (host config; on the host Active* == local config).
+            if (!Plugin.ActiveEnabled) return;
 
             // Only the host computes and applies damage. (IsInGameplay also requires a room.)
             if (PhotonNetwork.InRoom && !PhotonNetwork.IsMasterClient) return;
             if (!Plugin.IsInGameplay()) return;
 
             _accum += Time.deltaTime;
-            if (_accum < Plugin.TickInterval.Value) return;
+            if (_accum < Plugin.ActiveTickInterval) return;
             _accum = 0f;
 
             var list = GameDirector.instance?.PlayerList;
@@ -37,31 +40,31 @@ namespace ForcedFriendship
                 if (pa == null) continue;
                 Vector3 pos = pa.transform.position;
                 bool alive = PlayerLiveness.IsAlive(pa);
-                _states.Add(new PlayerState(pos.x, pos.y, pos.z, alive));
+                bool inTruck = PlayerLiveness.IsInTruck(pa);
+                _states.Add(new PlayerState(pos.x, pos.y, pos.z, alive, inTruck));
                 _avatars.Add(pa);
             }
 
             var settings = new DamageSettings(
                 enabled: true,
-                safeDistance: Plugin.SafeDistance.Value,
-                bandWidth: Plugin.BandWidth.Value,
-                damagePerBand: Plugin.DamagePerBand.Value);
+                safeDistance: Plugin.ActiveSafeDistance,
+                bandWidth: Plugin.ActiveBandWidth,
+                damagePerBand: Plugin.ActiveDamagePerBand);
 
-            bool hasCart = false;
-            float cx = 0f, cy = 0f, cz = 0f;
-            if (Plugin.Mode.Value == AnchorMode.Cart)
+            _cartPositions.Clear();
+            if (Plugin.ActiveMode == AnchorMode.Cart)
             {
-                PhysGrabCart? cart = CartLocator.FindMainCart();
-                if (cart != null)
+                CartLocator.FindMainCarts(_carts);
+                foreach (PhysGrabCart c in _carts)
                 {
-                    Vector3 cp = cart.transform.position;
-                    hasCart = true;
-                    cx = cp.x; cy = cp.y; cz = cp.z;
+                    if (c == null) continue;
+                    Vector3 cp = c.transform.position;
+                    _cartPositions.Add(new Vec3(cp.x, cp.y, cp.z));
                 }
             }
 
             AnchorResult[] anchors =
-                DamageCalculator.ResolveAnchors(_states, Plugin.Mode.Value, hasCart, cx, cy, cz);
+                DamageCalculator.ResolveAnchors(_states, Plugin.ActiveMode, _cartPositions);
             int[] damage = DamageCalculator.EvaluateDamage(anchors, settings);
             for (int i = 0; i < damage.Length; i++)
             {
