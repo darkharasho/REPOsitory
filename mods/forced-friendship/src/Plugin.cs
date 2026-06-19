@@ -62,6 +62,7 @@ namespace ForcedFriendship
             harmony.PatchAll();
             Log.LogInfo($"ForcedFriendship v{PluginInfo.PLUGIN_VERSION} loaded.");
             gameObject.AddComponent<ForcedFriendshipDriver>();
+            gameObject.AddComponent<BeamRenderer>();
         }
 
         /// <summary>
