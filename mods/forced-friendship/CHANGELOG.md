@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.1
+- When the mod is disabled (locally or by the host), hide all display too — the screen-edge
+  status border and the post-truck "Safe for Ns" grace countdown no longer show. Matches the
+  existing behavior of the beams and damage.
+
 ## 0.3.0
 - Host config sync: the gameplay rule (`Enabled`, `AnchorMode`, `SafeDistance`, `BandWidth`,
   `DamagePerBand`, `TickInterval`) is taken from the host and synced to all clients, so beams

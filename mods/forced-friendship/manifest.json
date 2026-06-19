@@ -1,6 +1,6 @@
 {
     "name": "ForcedFriendship",
-    "version_number": "0.3.0",
+    "version_number": "0.3.1",
     "website_url": "https://github.com/darkharasho/REPOsitory",
     "description": "Take damage over time when you're not within a configurable distance of another player; the farther away you are, the faster the damage ticks.",
     "dependencies": [

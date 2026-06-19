@@ -54,7 +54,9 @@ namespace ForcedFriendship
 
         private void Update()
         {
-            if (!Plugin.IsInGameplay())
+            // When the rule is disabled (locally or by the host), suppress ALL display — the grace
+            // countdown and the screen-edge status border — exactly as the beams and damage are.
+            if (!Plugin.ActiveEnabled || !Plugin.IsInGameplay())
             {
                 _grace.Clear();
                 PlayerCount = 0;
