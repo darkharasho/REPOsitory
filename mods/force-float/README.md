@@ -8,9 +8,9 @@ It re-applies the effect before it wears off, so the float never ends.
 Floating is active **only during levels**. The truck, shop, lobby, and menus play normally,
 so you can still board, shop, and navigate without bouncing around.
 
-It works by spawning the game's own Zero Gravity Staff effect on each player, the exact
-same one the staff produces — so the float, drift steering, and wings all behave just
-like the real item.
+It reproduces the Zero Gravity Staff's effect frame-for-frame on each player — the same
+zero-gravity, drag, lift, drift-steering and wings the real staff applies — so it feels
+exactly like the item, but always on.
 
 ## Config (BepInEx)
 
