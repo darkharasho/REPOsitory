@@ -1,31 +1,41 @@
+using System.Collections.Generic;
 using HarmonyLib;
 using UnityEngine;
 
 namespace ForceFloat
 {
     /// <summary>
-    /// Keeps players permanently under the Zero Gravity Staff effect during levels. Mirrors
-    /// the game's SemiAffectZeroGravity: tumble + anti-gravity + camera-directed drift for the
-    /// local player, and (as master client) tumbles every other player so unmodded clients float too.
+    /// Keeps every player permanently floating during levels by spawning the game's OWN
+    /// Zero Gravity Staff effect (<c>SemiAffectZeroGravity</c>) on each living player — the exact
+    /// same prefab + <c>SemiAffect.SetupSingleplayer</c> call the staff's area-of-effect uses
+    /// (see <c>SemiAreaOfEffect.CreateAffectsRPC</c>). Re-applied before the effect expires so the
+    /// float never ends.
+    ///
+    /// Only the master client / singleplayer host spawns the effect: tumble physics is
+    /// master-authoritative in this game (<c>PlayerTumble.FixedUpdate</c> returns on non-masters),
+    /// so the host drives the float for everyone. This makes the host authoritative ("host wins")
+    /// and means clients float even without the mod installed.
     /// </summary>
     public class FloatDriver : MonoBehaviour
     {
-        private const float DriftForce = 8f;
-        private bool wasActive;
+        // SemiAffectZeroGravity.Start() doubles the timer, so the real on-screen duration is
+        // ~2x AffectTime. Re-apply on a shorter interval than that so the float is continuous.
+        private const float AffectTime = 2f;       // ~4s effective
+        private const float ReapplyInterval = 2.5f;
 
-        // PlayerAvatar internal fields — accessed via cached field-ref delegates (same pattern as ForcedFriendship)
+        // Internal game fields → cached field-ref delegates (this mod builds against the
+        // un-publicized DLL; same pattern as ForcedFriendship/PlayerLiveness).
         private static readonly AccessTools.FieldRef<PlayerAvatar, PlayerTumble> AvatarTumbleRef =
             AccessTools.FieldRefAccess<PlayerAvatar, PlayerTumble>("tumble");
-        private static readonly AccessTools.FieldRef<PlayerAvatar, bool> AvatarIsTumblingRef =
-            AccessTools.FieldRefAccess<PlayerAvatar, bool>("isTumbling");
-        private static readonly AccessTools.FieldRef<PlayerAvatar, bool> AvatarIsLocalRef =
-            AccessTools.FieldRefAccess<PlayerAvatar, bool>("isLocal");
-        private static readonly AccessTools.FieldRef<PlayerAvatar, Vector3> AvatarInputDirectionRawRef =
-            AccessTools.FieldRefAccess<PlayerAvatar, Vector3>("InputDirectionRaw");
+        private static readonly AccessTools.FieldRef<PlayerAvatar, bool> AvatarDeadSetRef =
+            AccessTools.FieldRefAccess<PlayerAvatar, bool>("deadSet");
+        private static readonly AccessTools.FieldRef<PlayerAvatar, bool> AvatarIsDisabledRef =
+            AccessTools.FieldRefAccess<PlayerAvatar, bool>("isDisabled");
+        private static readonly AccessTools.FieldRef<PlayerTumble, PhysGrabObject> TumblePhysGrabObjectRef =
+            AccessTools.FieldRefAccess<PlayerTumble, PhysGrabObject>("physGrabObject");
 
-        // PlayerTumble.rb is also internal
-        private static readonly AccessTools.FieldRef<PlayerTumble, Rigidbody> TumbleRbRef =
-            AccessTools.FieldRefAccess<PlayerTumble, Rigidbody>("rb");
+        private GameObject? _affectPrefab;
+        private readonly Dictionary<PlayerAvatar, float> _nextApply = new Dictionary<PlayerAvatar, float>();
 
         /// <summary>Floating is active only during real levels (not shop/lobby/menus/arena).</summary>
         private static bool ShouldFloat()
@@ -35,50 +45,38 @@ namespace ForceFloat
             return SemiFunc.RunIsLevel();
         }
 
+        private static bool IsAlive(PlayerAvatar pa) => !AvatarDeadSetRef(pa) && !AvatarIsDisabledRef(pa);
+
         private void Update()
         {
             try
             {
-                if (!ShouldFloat())
+                if (!Plugin.Enabled.Value) return;
+                if (!ShouldFloat()) return;
+                // Only the host drives the float (tumble physics is master-authoritative).
+                if (!SemiFunc.IsMasterClientOrSingleplayer()) return;
+
+                var prefab = GetAffectPrefab();
+                if (prefab == null) return;
+
+                var director = GameDirector.instance;
+                if (director == null) return;
+
+                var list = director.PlayerList;
+                float now = Time.time;
+                for (int i = 0; i < list.Count; i++)
                 {
-                    if (wasActive) Release();
-                    return;
-                }
+                    var pa = list[i];
+                    if (pa == null || !IsAlive(pa)) continue;          // never touch dead players (their head body)
 
-                var avatar = PlayerAvatar.instance;
-                if (avatar == null) return;
+                    // Skip if this player already has a live zero-gravity affect (e.g. an actual
+                    // staff hit, or our own still-running one) — only the local avatar exposes it.
+                    if (pa.activeZeroGravityAffect != null) continue;
 
-                wasActive = true;
+                    if (_nextApply.TryGetValue(pa, out float next) && now < next) continue;
 
-                // --- local player: tumble + anti-gravity + wings ---
-                if (PlayerController.instance != null)
-                    PlayerController.instance.AntiGravity(0.1f);
-
-                var tumble = AvatarTumbleRef(avatar);
-                if (tumble != null)
-                {
-                    if (!AvatarIsTumblingRef(avatar))
-                        tumble.TumbleRequest(true, false);
-                    tumble.TumbleOverrideTime(0.5f);
-                }
-
-                if (Plugin.Wings.Value)
-                    avatar.UpgradeTumbleWingsVisualsActive();
-
-                // --- master client: keep everyone else tumbling (covers unmodded players) ---
-                if (SemiFunc.IsMasterClientOrSingleplayer() && GameDirector.instance != null)
-                {
-                    var list = GameDirector.instance.PlayerList;
-                    for (int i = 0; i < list.Count; i++)
-                    {
-                        var pa = list[i];
-                        if (pa == null || AvatarIsLocalRef(pa)) continue;
-                        var paTumble = AvatarTumbleRef(pa);
-                        if (paTumble == null) continue;
-                        if (!AvatarIsTumblingRef(pa))
-                            paTumble.TumbleRequest(true, false);
-                        paTumble.TumbleOverrideTime(0.5f);
-                    }
+                    if (ApplyFloat(prefab, pa))
+                        _nextApply[pa] = now + ReapplyInterval;
                 }
             }
             catch (System.Exception e)
@@ -87,60 +85,49 @@ namespace ForceFloat
             }
         }
 
-        private void FixedUpdate()
+        /// <summary>
+        /// Spawn the real zero-gravity effect on one player, exactly as
+        /// <c>SemiAreaOfEffect.CreateAffectsRPC</c> does in its singleplayer branch.
+        /// </summary>
+        private bool ApplyFloat(GameObject prefab, PlayerAvatar pa)
         {
-            try
-            {
-                if (!Plugin.EnableDrift.Value || !ShouldFloat()) return;
-                var avatar = PlayerAvatar.instance;
-                if (avatar == null || avatar.localCamera == null) return;
+            var tumble = AvatarTumbleRef(pa);
+            if (tumble == null) return false;
+            var pgo = TumblePhysGrabObjectRef(tumble);
+            if (pgo == null) return false;
 
-                var tumble = AvatarTumbleRef(avatar);
-                if (tumble == null) return;
+            var go = Object.Instantiate(prefab, pa.transform.position, Quaternion.identity);
+            var affect = go.GetComponent<SemiAffect>();
+            if (affect == null) { Object.Destroy(go); return false; }
 
-                var rb = TumbleRbRef(tumble);
-                if (rb == null) return;
-
-                Transform cam = avatar.localCamera.GetOverrideTransform();
-                if (cam == null) return;
-
-                // Face movement direction, as the staff does.
-                Quaternion target = Quaternion.LookRotation(cam.forward, Vector3.up);
-                Vector3 torque = SemiFunc.PhysFollowRotation(tumble.transform, target, rb, 20f);
-                rb.AddTorque(torque, ForceMode.Impulse);
-
-                Vector3 input = AvatarInputDirectionRawRef(avatar);
-                V3 dir = FloatMath.DriftDirection(
-                    new V3(cam.forward.x, cam.forward.y, cam.forward.z),
-                    new V3(cam.right.x, cam.right.y, cam.right.z),
-                    input.x, input.z);
-
-                if (dir.SqrMagnitude < 0.0001f) return;
-                rb.AddForce(new Vector3(dir.X, dir.Y, dir.Z) * DriftForce * rb.mass, ForceMode.Force);
-            }
-            catch (System.Exception e)
-            {
-                Plugin.Log.LogError($"FloatDriver.FixedUpdate: {e}");
-            }
+            affect.direction = Vector3.up;
+            affect.positionOfOriginalAreaOfEffect = pa.transform.position;
+            affect.SetupSingleplayer(pa.transform, pgo, AffectTime, pa);
+            return true;
         }
 
-        /// <summary>Stop floating when leaving a level so players land normally in the truck/shop.</summary>
-        private void Release()
+        /// <summary>
+        /// Locate the game's Zero Gravity affect prefab once. We search all loaded objects for the
+        /// <c>SemiAffectZeroGravity</c> asset (the prefab, not a live scene instance) and cache it.
+        /// </summary>
+        private GameObject? GetAffectPrefab()
         {
-            wasActive = false;
-            try
+            if (_affectPrefab != null) return _affectPrefab;
+
+            var all = Resources.FindObjectsOfTypeAll<SemiAffectZeroGravity>();
+            foreach (var sa in all)
             {
-                var avatar = PlayerAvatar.instance;
-                if (avatar == null) return;
-                var tumble = AvatarTumbleRef(avatar);
-                if (tumble != null && AvatarIsTumblingRef(avatar))
-                    tumble.TumbleRequest(false, false);
-                avatar.UpgradeTumbleWingsVisualsActive(false);
+                if (sa == null) continue;
+                var go = sa.gameObject;
+                // Prefer a prefab asset (no valid scene) over a live scene instance.
+                if (!go.scene.IsValid())
+                {
+                    _affectPrefab = go;
+                    Plugin.Log.LogInfo("[ForceFloat] Found ZeroGravity affect prefab.");
+                    return _affectPrefab;
+                }
             }
-            catch (System.Exception e)
-            {
-                Plugin.Log.LogError($"FloatDriver.Release: {e}");
-            }
+            return null;
         }
     }
 }

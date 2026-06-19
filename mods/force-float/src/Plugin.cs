@@ -9,18 +9,17 @@ namespace ForceFloat
     {
         internal static ManualLogSource Log = null!;
 
-        internal static ConfigEntry<bool> EnableDrift = null!;
-        internal static ConfigEntry<bool> Wings = null!;
+        internal static ConfigEntry<bool> Enabled = null!;
 
         private void Awake()
         {
             Log = Logger;
 
-            EnableDrift = Config.Bind("General", "EnableDrift", true,
-                "Steer through the air with your movement keys (look where you want to go). " +
-                "Off = pure ragdoll drift with no steering.");
-            Wings = Config.Bind("General", "Wings", true,
-                "Show the tumble wing visuals while floating.");
+            // Only the host spawns the float effect (tumble physics is master-authoritative),
+            // so the HOST's Enabled value governs the whole lobby — clients float without the mod.
+            Enabled = Config.Bind("General", "Enabled", true,
+                "Master on/off switch for permanent floating. Only the host's value matters: the " +
+                "host drives the float for every player.");
 
             gameObject.AddComponent<FloatDriver>();
             Log.LogInfo($"ForceFloat v{PluginInfo.PLUGIN_VERSION} loaded.");
