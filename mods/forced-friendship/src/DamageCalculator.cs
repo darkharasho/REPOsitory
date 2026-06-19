@@ -99,18 +99,25 @@ namespace ForcedFriendship
     /// <summary>Pure banded damage-over-time math. No Unity/Photon/BepInEx dependencies.</summary>
     public static class DamageCalculator
     {
-        public static float Distance(in PlayerState a, in PlayerState b)
+        public static float Distance(in PlayerState a, in PlayerState b) => Distance(a, b, includeHeight: true);
+
+        /// <summary>
+        /// Distance between two players. When <paramref name="includeHeight"/> is false the
+        /// vertical (Y) axis is ignored, so players on different floors of the same tall room
+        /// still count as close.
+        /// </summary>
+        public static float Distance(in PlayerState a, in PlayerState b, bool includeHeight)
         {
             float dx = a.X - b.X;
-            float dy = a.Y - b.Y;
+            float dy = includeHeight ? a.Y - b.Y : 0f;
             float dz = a.Z - b.Z;
             return (float)Math.Sqrt((dx * dx) + (dy * dy) + (dz * dz));
         }
 
-        private static float Distance(in PlayerState a, in Vec3 b)
+        private static float Distance(in PlayerState a, in Vec3 b, bool includeHeight)
         {
             float dx = a.X - b.X;
-            float dy = a.Y - b.Y;
+            float dy = includeHeight ? a.Y - b.Y : 0f;
             float dz = a.Z - b.Z;
             return (float)Math.Sqrt((dx * dx) + (dy * dy) + (dz * dz));
         }
@@ -134,7 +141,8 @@ namespace ForcedFriendship
         /// empty, Cart mode falls back to Buddy. Dead players get <see cref="AnchorResult.None"/>.
         /// </summary>
         public static AnchorResult[] ResolveAnchors(
-            IReadOnlyList<PlayerState> players, AnchorMode mode, IReadOnlyList<Vec3> carts)
+            IReadOnlyList<PlayerState> players, AnchorMode mode, IReadOnlyList<Vec3> carts,
+            bool includeHeight = true)
         {
             var result = new AnchorResult[players.Count];
             bool useCart = mode == AnchorMode.Cart && carts != null && carts.Count > 0;
@@ -150,7 +158,7 @@ namespace ForcedFriendship
                     int bestIdx = -1;
                     for (int c = 0; c < carts!.Count; c++)
                     {
-                        float d = Distance(self, carts[c]);
+                        float d = Distance(self, carts[c], includeHeight);
                         if (d < best) { best = d; bestIdx = c; }
                     }
                     Vec3 cart = carts[bestIdx];
@@ -166,7 +174,7 @@ namespace ForcedFriendship
                     PlayerState other = players[j];
                     if (!other.Alive) continue;
 
-                    float d = Distance(self, other);
+                    float d = Distance(self, other, includeHeight);
                     if (d < nearest) { nearest = d; nearestIdx = j; }
                 }
 

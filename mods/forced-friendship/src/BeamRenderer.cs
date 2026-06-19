@@ -76,13 +76,14 @@ namespace ForcedFriendship
             }
 
             AnchorResult[] anchors =
-                DamageCalculator.ResolveAnchors(_states, mode, _cartPositions);
+                DamageCalculator.ResolveAnchors(_states, mode, _cartPositions, Plugin.ActiveIncludeHeight);
 
             PlayerAvatar? local = PlayerAvatar.instance;
             bool showAll = Plugin.BeamsShowAll.Value;
             float safe = Plugin.ActiveSafeDistance;
             float warn = Plugin.WarnFraction;
             float width = Plugin.BeamWidthWorld;
+            float opacity = Plugin.BeamOpacity;
 
             for (int i = 0; i < _avatars.Count; i++)
             {
@@ -102,6 +103,7 @@ namespace ForcedFriendship
                 lr.SetPosition(0, from);
                 lr.SetPosition(1, to);
                 Color c = ZoneColor(zone);
+                c.a = opacity;
                 lr.startColor = c;
                 lr.endColor = c;
             }
@@ -161,27 +163,27 @@ namespace ForcedFriendship
             }
         }
 
-        // Additive, unlit glow — mimics the soft look of the game's grab beam rather than a flat
-        // opaque line. Falls back gracefully if a shader isn't present in this Unity build.
+        // Alpha-blended unlit line — translucent and soft (the LineRenderer's vertex-color alpha,
+        // driven by Beams/Opacity, shows through), rather than an additive neon glow. Sprites/Default
+        // is a built-in transparent unlit shader present in every Unity build.
         private Material BeamMaterial()
         {
             if (_material == null)
             {
-                Shader shader = Shader.Find("Particles/Standard Unlit")
-                    ?? Shader.Find("Legacy Shaders/Particles/Additive")
-                    ?? Shader.Find("Sprites/Default");
+                Shader shader = Shader.Find("Sprites/Default") ?? Shader.Find("Unlit/Transparent");
                 _material = new Material(shader);
             }
             return _material;
         }
 
+        // Muted (not full-saturation) so even at high opacity the beam reads as a soft tether.
         private static Color ZoneColor(BeamZone zone)
         {
             switch (zone)
             {
-                case BeamZone.Danger: return Color.red;
-                case BeamZone.Warn: return Color.yellow;
-                default: return Color.green;
+                case BeamZone.Danger: return new Color(0.85f, 0.20f, 0.16f);
+                case BeamZone.Warn: return new Color(0.85f, 0.70f, 0.15f);
+                default: return new Color(0.25f, 0.75f, 0.30f);
             }
         }
     }

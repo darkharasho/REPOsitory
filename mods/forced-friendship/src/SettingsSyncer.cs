@@ -21,13 +21,13 @@ namespace ForcedFriendship
         private const string K_BAND    = "FF_BAND";
         private const string K_DMG     = "FF_DMG";
         private const string K_TICK    = "FF_TICK";
+        private const string K_HEIGHT  = "FF_HGT";
 
         // Static singleton — FindObjectOfType doesn't reliably find us on the BepInEx plugin
         // GameObject (it lives outside the normal scene hierarchy).
         internal static SettingsSyncer? Instance;
 
         private bool _wasInRoom;
-        private bool _wasMaster;
         private float _pullPollDelay;
 
         private void Awake() => Instance = this;
@@ -38,33 +38,36 @@ namespace ForcedFriendship
             bool inRoom = PhotonNetwork.InRoom;
             bool master = inRoom && PhotonNetwork.IsMasterClient;
 
-            if (inRoom && !_wasInRoom)
+            if (master)
             {
-                if (master) PushHostSettings();
-                else        PullHostSettings();
-            }
-            else if (!inRoom && _wasInRoom)
-            {
-                Plugin.ResetToLocalConfig();
-                Plugin.Log.LogInfo("[Sync] Left room — reset to local config");
-            }
-            else if (inRoom && master && !_wasMaster)
-            {
-                // Became master (e.g. host migration) — push our settings.
+                // Host (incl. singleplayer's offline room): keep Active* tracking live local config
+                // every frame so config changes update instantly, and broadcast to clients only
+                // when a value actually changed (PushHostSettings dedups + refreshes Active*).
                 PushHostSettings();
             }
-            else if (inRoom && !master)
+            else if (inRoom)
             {
-                _pullPollDelay -= Time.unscaledDeltaTime;
-                if (_pullPollDelay <= 0f)
+                // Non-host client: pull the host rule from room properties — immediately on join,
+                // then poll once a second in case the host pushed after we joined.
+                if (!_wasInRoom)
                 {
-                    _pullPollDelay = 1f;
                     PullHostSettings();
+                    _pullPollDelay = 1f;
                 }
+                else
+                {
+                    _pullPollDelay -= Time.unscaledDeltaTime;
+                    if (_pullPollDelay <= 0f) { _pullPollDelay = 1f; PullHostSettings(); }
+                }
+            }
+            else
+            {
+                // Not in a room (main menu): mirror local config so it's ready before we join.
+                if (_wasInRoom) Plugin.Log.LogInfo("[Sync] Left room");
+                Plugin.ResetToLocalConfig();
             }
 
             _wasInRoom = inRoom;
-            _wasMaster = master;
         }
 
         private void PullHostSettings()
@@ -78,15 +81,9 @@ namespace ForcedFriendship
             if (props.ContainsKey(K_BAND))    { var v = (int)props[K_BAND];                if (Plugin.ActiveBandWidth     != v) { Plugin.ActiveBandWidth     = v; changed = true; } }
             if (props.ContainsKey(K_DMG))     { var v = (int)props[K_DMG];                 if (Plugin.ActiveDamagePerBand != v) { Plugin.ActiveDamagePerBand = v; changed = true; } }
             if (props.ContainsKey(K_TICK))    { var v = (int)props[K_TICK];                if (Plugin.ActiveTickInterval  != v) { Plugin.ActiveTickInterval  = v; changed = true; } }
+            if (props.ContainsKey(K_HEIGHT))  { var v = (bool)props[K_HEIGHT];             if (Plugin.ActiveIncludeHeight != v) { Plugin.ActiveIncludeHeight = v; changed = true; } }
             if (changed)
                 Plugin.Log.LogInfo($"[Sync] Pulled host rule — enabled={Plugin.ActiveEnabled} mode={Plugin.ActiveMode} safe={Plugin.ActiveSafeDistance} band={Plugin.ActiveBandWidth} dmg={Plugin.ActiveDamagePerBand} tick={Plugin.ActiveTickInterval}");
-        }
-
-        // Public entry point for runtime config changes — only valid when host with a room.
-        internal void PushHostSettingsExternal()
-        {
-            if (!PhotonNetwork.InRoom || !PhotonNetwork.IsMasterClient) return;
-            PushHostSettings();
         }
 
         // Cache last-pushed values so we don't broadcast a room update when SettingChanged fires
@@ -95,6 +92,7 @@ namespace ForcedFriendship
         private int _lastMode = int.MinValue;
         private int _lastSafe = int.MinValue, _lastBand = int.MinValue, _lastTick = int.MinValue;
         private int _lastDmg = int.MinValue;
+        private bool? _lastHeight;
 
         private void PushHostSettings()
         {
@@ -103,24 +101,25 @@ namespace ForcedFriendship
             int mode = (int)Plugin.Mode.Value;
             int safe = Plugin.SafeDistance.Value, band = Plugin.BandWidth.Value, tick = Plugin.TickInterval.Value;
             int dmg = Plugin.DamagePerBand.Value;
+            bool height = Plugin.IncludeHeight.Value;
 
             if (en == _lastEnabled && mode == _lastMode && safe == _lastSafe &&
-                band == _lastBand && dmg == _lastDmg && tick == _lastTick)
+                band == _lastBand && dmg == _lastDmg && tick == _lastTick && height == _lastHeight)
             {
                 Plugin.ResetToLocalConfig(); // refresh Active mirrors, skip the broadcast
                 return;
             }
             _lastEnabled = en; _lastMode = mode; _lastSafe = safe;
-            _lastBand = band; _lastDmg = dmg; _lastTick = tick;
+            _lastBand = band; _lastDmg = dmg; _lastTick = tick; _lastHeight = height;
 
             var props = new ExitGames.Client.Photon.Hashtable
             {
                 [K_ENABLED] = en, [K_MODE] = mode, [K_SAFE] = safe,
-                [K_BAND] = band, [K_DMG] = dmg, [K_TICK] = tick,
+                [K_BAND] = band, [K_DMG] = dmg, [K_TICK] = tick, [K_HEIGHT] = height,
             };
             PhotonNetwork.CurrentRoom.SetCustomProperties(props);
             Plugin.ResetToLocalConfig();
-            Plugin.Log.LogInfo($"[Sync] Host pushed rule — enabled={en} mode={(AnchorMode)mode} safe={safe} band={band} dmg={dmg} tick={tick}");
+            Plugin.Log.LogInfo($"[Sync] Host pushed rule — enabled={en} mode={(AnchorMode)mode} safe={safe} band={band} dmg={dmg} tick={tick} height={height}");
         }
     }
 }

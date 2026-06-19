@@ -9,9 +9,14 @@
 - Cart mode now anchors each player to the **nearest** cart, supporting multiple medium carts.
 - Buddy mode hides the beam when you're safe — split groups that are each fine show no lines;
   the tether only appears in the warn/danger zone.
-- Beams restyled thinner with an additive glow to mimic the game's grab beam; new `Beams/Width`.
+- Beams restyled thinner and translucent (soft, grab-beam-like) instead of a neon glow; new
+  `Beams/Width` and `Beams/Opacity` knobs.
+- Config changes (incl. swapping AnchorMode) now update the host's beams the same frame instead
+  of lagging behind.
 - All numeric settings are now whole integers with sane maximums; `SafeDistance` default is 20,
   `WarnPercent` is now a 0–100 percent.
+- New `IncludeHeight` setting (default false): vertical distance is ignored by default, so being
+  on a different floor of the same tall room no longer triggers damage.
 
 ## 0.2.0
 - New `AnchorMode` setting: `Buddy` (stay near the nearest living player, the original

@@ -14,10 +14,12 @@ Config file: `BepInEx/config/darkharasho.ForcedFriendship.cfg`. All numeric sett
 | `BandWidth` | General | `8` | Units per additional damage band beyond the safe radius (1–100) |
 | `DamagePerBand` | General | `5` | HP per tick, multiplied by the band number (1–100) |
 | `TickInterval` | General | `2` | Seconds between damage evaluations (1–30) |
+| `IncludeHeight` | General | `false` | If true, vertical distance counts; default false so different floors of one tall room stay safe |
 | `Enabled` | Beams | `true` | Draw a tether beam from each player to their anchor |
 | `ShowAllPlayers` | Beams | `true` | Show every player's beam; if false, only your own |
 | `WarnPercent` | Beams | `25` | Outer % of `SafeDistance` where the beam turns yellow before red (0–100; 0 disables yellow) |
 | `Width` | Beams | `2` | Tether thickness (1–20; 1 = thinnest, approximates the grab beam) |
+| `Opacity` | Beams | `40` | Beam opacity % (1–100; lower is more translucent) |
 
 The **gameplay rule** (`Enabled`, `AnchorMode`, `SafeDistance`, `BandWidth`, `DamagePerBand`,
 `TickInterval`) is taken from the **host** and synced to everyone, so each client's beams match

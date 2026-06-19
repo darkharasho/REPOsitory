@@ -16,11 +16,13 @@ namespace ForcedFriendship
         internal static ConfigEntry<int> BandWidth = null!;
         internal static ConfigEntry<int> DamagePerBand = null!;
         internal static ConfigEntry<int> TickInterval = null!;
+        internal static ConfigEntry<bool> IncludeHeight = null!;
         internal static ConfigEntry<AnchorMode> Mode = null!;
         internal static ConfigEntry<bool> BeamsEnabled = null!;
         internal static ConfigEntry<bool> BeamsShowAll = null!;
         internal static ConfigEntry<int> BeamsWarnPercent = null!;
         internal static ConfigEntry<int> BeamsWidth = null!;
+        internal static ConfigEntry<int> BeamsOpacity = null!;
 
         // Active rule values — the gameplay rule comes from the HOST so every client's beams
         // match the host-authoritative damage. They start from local config and are overwritten
@@ -33,11 +35,14 @@ namespace ForcedFriendship
         internal static int ActiveBandWidth;
         internal static int ActiveDamagePerBand;
         internal static int ActiveTickInterval;
+        internal static bool ActiveIncludeHeight;
 
         /// <summary>Beam thickness in world units (the int Width knob is a 1/100 scale).</summary>
         internal static float BeamWidthWorld => BeamsWidth.Value * 0.01f;
         /// <summary>Warn-zone fraction of SafeDistance (the int WarnPercent knob is 0–100).</summary>
         internal static float WarnFraction => BeamsWarnPercent.Value / 100f;
+        /// <summary>Beam opacity 0–1 (the int Opacity knob is 0–100).</summary>
+        internal static float BeamOpacity => BeamsOpacity.Value / 100f;
 
         private void Awake()
         {
@@ -61,6 +66,9 @@ namespace ForcedFriendship
                 new ConfigDescription(
                     "Seconds between damage evaluations.",
                     new AcceptableValueRange<int>(1, 30)));
+            IncludeHeight = Config.Bind("General", "IncludeHeight", false,
+                "If true, vertical distance counts toward the safe radius. Default false so being " +
+                "on a different floor of the same tall room doesn't trigger damage.");
 
             Mode = Config.Bind("General", "AnchorMode", AnchorMode.Buddy,
                 "Buddy = stay near the nearest living player (default). " +
@@ -79,18 +87,12 @@ namespace ForcedFriendship
                 new ConfigDescription(
                     "Tether thickness (1 = thinnest). The default approximates the game's grab beam.",
                     new AcceptableValueRange<int>(1, 20)));
+            BeamsOpacity = Config.Bind("Beams", "Opacity", 40,
+                new ConfigDescription(
+                    "Beam opacity percent (1 = faint, 100 = solid). Lower is more translucent.",
+                    new AcceptableValueRange<int>(1, 100)));
 
             ResetToLocalConfig();
-
-            // Keep Active* mirrors current when the host changes config at runtime (e.g. via a
-            // config manager), and re-push to clients. Non-host changes only affect singleplayer;
-            // in a room the host's values win and the next pull overwrites ours.
-            Enabled.SettingChanged       += (_, _) => OnRuleConfigChanged();
-            SafeDistance.SettingChanged  += (_, _) => OnRuleConfigChanged();
-            BandWidth.SettingChanged     += (_, _) => OnRuleConfigChanged();
-            DamagePerBand.SettingChanged += (_, _) => OnRuleConfigChanged();
-            TickInterval.SettingChanged  += (_, _) => OnRuleConfigChanged();
-            Mode.SettingChanged          += (_, _) => OnRuleConfigChanged();
 
             var harmony = new Harmony("darkharasho.ForcedFriendship");
             harmony.PatchAll();
@@ -109,15 +111,7 @@ namespace ForcedFriendship
             ActiveBandWidth     = BandWidth.Value;
             ActiveDamagePerBand = DamagePerBand.Value;
             ActiveTickInterval  = TickInterval.Value;
-        }
-
-        // Re-apply local config, then re-push to room properties if we're host so non-host clients
-        // pick up the change. Non-host edits only matter in singleplayer; the next pull overwrites.
-        private static void OnRuleConfigChanged()
-        {
-            if (PhotonNetwork.InRoom && !PhotonNetwork.IsMasterClient) return;
-            ResetToLocalConfig();
-            SettingsSyncer.Instance?.PushHostSettingsExternal();
+            ActiveIncludeHeight = IncludeHeight.Value;
         }
 
         /// <summary>

@@ -64,7 +64,7 @@ namespace ForcedFriendship
             }
 
             AnchorResult[] anchors =
-                DamageCalculator.ResolveAnchors(_states, Plugin.ActiveMode, _cartPositions);
+                DamageCalculator.ResolveAnchors(_states, Plugin.ActiveMode, _cartPositions, Plugin.ActiveIncludeHeight);
             int[] damage = DamageCalculator.EvaluateDamage(anchors, settings);
             for (int i = 0; i < damage.Length; i++)
             {

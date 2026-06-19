@@ -220,6 +220,22 @@ public class DamageCalculatorTests
     }
 
     [Fact]
+    public void ResolveAnchors_ignores_height_when_includeHeight_false()
+    {
+        // Two players directly above each other 30 apart vertically, same X/Z.
+        var players = new[]
+        {
+            new PlayerState(0f, 0f, 0f, alive: true),
+            new PlayerState(0f, 30f, 0f, alive: true),
+        };
+        var withHeight = DamageCalculator.ResolveAnchors(players, AnchorMode.Buddy, NoCarts, includeHeight: true);
+        Assert.Equal(30f, withHeight[0].Distance, precision: 4);   // full vertical separation
+
+        var flat = DamageCalculator.ResolveAnchors(players, AnchorMode.Buddy, NoCarts, includeHeight: false);
+        Assert.Equal(0f, flat[0].Distance, precision: 4);          // same column -> distance 0
+    }
+
+    [Fact]
     public void ResolveAnchors_cart_uses_nearest_of_multiple_carts()
     {
         var players = new[]
