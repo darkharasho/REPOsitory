@@ -7,15 +7,15 @@ namespace ForceFloat
     /// <summary>
     /// Keeps every player permanently floating during levels by spawning the game's OWN Zero
     /// Gravity effect (<c>SemiAffectZeroGravity</c>) on each living player — the exact prefab +
-    /// <c>SemiAffect.SetupSingleplayer</c> call the staff's area-of-effect uses
-    /// (<c>SemiAreaOfEffect.CreateAffectsRPC</c>). Letting the real effect run hands all the
-    /// tumble/physics/networking to proven game code.
+    /// <c>SemiAffect.SetupSingleplayer</c> call the staff's area-of-effect uses, so the real game
+    /// code drives all tumble/physics/networking.
     ///
-    /// Every client spawns its own local copy of the effect for every player (mirroring the staff,
-    /// whose effect is instantiated on all clients). The effect itself master-gates the physics and
-    /// runs its local-player parts (anti-gravity, camera steering) on the owning client, so each
-    /// player sees themselves float and can steer. Requires the mod on every client. Dead players
-    /// are skipped.
+    /// The effect prefab isn't kept in memory unless a zero-gravity item is present, so we obtain it
+    /// from the item database: a zero-gravity item's serialized projectile → its
+    /// <c>SemiAreaOfEffect.semiAffectPrefab</c>, loaded on demand via <c>PrefabRef.Prefab</c>.
+    ///
+    /// Every client spawns its own local copy for every player (mirroring the staff). Dead players
+    /// are skipped. Requires the mod on every client.
     /// </summary>
     public class FloatDriver : MonoBehaviour
     {
@@ -32,13 +32,9 @@ namespace ForceFloat
             AccessTools.FieldRefAccess<PlayerAvatar, bool>("isTumbling");
         private static readonly AccessTools.FieldRef<PlayerTumble, PhysGrabObject> TumblePhysGrabObjectRef =
             AccessTools.FieldRefAccess<PlayerTumble, PhysGrabObject>("physGrabObject");
-        private static readonly AccessTools.FieldRef<RunManager, MultiplayerPool> MultiplayerPoolRef =
-            AccessTools.FieldRefAccess<RunManager, MultiplayerPool>("multiplayerPool");
-        private static readonly AccessTools.FieldRef<RunManager, Dictionary<string, Object>> SingleplayerPoolRef =
-            AccessTools.FieldRefAccess<RunManager, Dictionary<string, Object>>("singleplayerPool");
 
         private GameObject? _affectPrefab;
-        private bool _searchedAndLogged;
+        private bool _searched;
         private readonly Dictionary<PlayerAvatar, float> _nextApply = new Dictionary<PlayerAvatar, float>();
         private float _logAccum;
 
@@ -82,7 +78,6 @@ namespace ForceFloat
             }
         }
 
-        /// <summary>Spawn the real effect on one player, mirroring SemiAreaOfEffect.CreateAffectsRPC.</summary>
         private bool ApplyFloat(GameObject prefab, PlayerAvatar pa)
         {
             var tumble = AvatarTumbleRef(pa);
@@ -100,44 +95,65 @@ namespace ForceFloat
             return true;
         }
 
-        /// <summary>Find the ZeroGravity effect prefab from the run's prefab pools or loaded assets (logged once).</summary>
+        /// <summary>
+        /// Obtain the ZeroGravity effect prefab by walking the item database:
+        /// item.prefab -> zero-gravity item's projectilePrefab -> projectile's
+        /// SemiAreaOfEffect.semiAffectPrefab. Each PrefabRef.Prefab access loads from the bundle.
+        /// </summary>
         private GameObject? GetAffectPrefab()
         {
             if (_affectPrefab != null) return _affectPrefab;
+            if (_searched && _affectPrefab == null) { /* keep retrying each frame until items load */ }
 
-            int mpCount = 0, spCount = 0, resCount = 0;
-            GameObject? found = null;
+            var sm = StatsManager.instance;
+            if (sm == null || sm.itemDictionary == null) return null;
 
-            var rm = RunManager.instance;
-            if (rm != null)
+            int gravityItems = 0;
+            GameObject? affect = null;
+            foreach (var item in sm.itemDictionary.Values)
             {
-                var mp = MultiplayerPoolRef(rm);
-                if (mp != null && mp.ResourceCache != null)
-                    foreach (var go in mp.ResourceCache.Values)
-                        if (go != null && go.GetComponent<SemiAffectZeroGravity>() != null) { mpCount++; found ??= go; }
+                if (item == null || item.prefab == null) continue;
+                string name = (item.itemName ?? "").ToLowerInvariant();
+                if (!name.Contains("gravity")) continue;
+                gravityItems++;
 
-                var sp = SingleplayerPoolRef(rm);
-                if (sp != null)
-                    foreach (var obj in sp.Values)
-                        if (obj is GameObject go && go.GetComponent<SemiAffectZeroGravity>() != null) { spCount++; found ??= go; }
+                GameObject itemGO;
+                try { itemGO = item.prefab.Prefab; } catch { continue; }
+                if (itemGO == null) continue;
+
+                PrefabRef? projRef = ExtractProjectileRef(itemGO);
+                if (projRef == null) continue;
+
+                GameObject projGO;
+                try { projGO = projRef.Prefab; } catch { continue; }
+                if (projGO == null) continue;
+
+                var aoe = projGO.GetComponentInChildren<SemiAreaOfEffect>(true);
+                if (aoe == null || aoe.semiAffectPrefab == null) continue;
+
+                GameObject affectGO;
+                try { affectGO = aoe.semiAffectPrefab.Prefab; } catch { continue; }
+                if (affectGO != null && affectGO.GetComponent<SemiAffectZeroGravity>() != null)
+                {
+                    affect = affectGO;
+                    break;
+                }
             }
 
-            var all = Resources.FindObjectsOfTypeAll<SemiAffectZeroGravity>();
-            foreach (var sa in all)
+            if (!_searched || affect != null)
             {
-                if (sa == null) continue;
-                resCount++;
-                if (found == null && !sa.gameObject.scene.IsValid()) found = sa.gameObject;
+                _searched = true;
+                Plugin.Log.LogInfo($"[FloatDiag] prefab via item DB: gravityItems={gravityItems} -> {(affect != null ? "FOUND" : "not yet")}");
             }
-            if (found == null && all.Length > 0 && all[0] != null) found = all[0].gameObject;
-
-            if (!_searchedAndLogged)
-            {
-                _searchedAndLogged = true;
-                Plugin.Log.LogInfo($"[FloatDiag] prefab search: multiplayerPool={mpCount} singleplayerPool={spCount} loaded={resCount} -> {(found != null ? "FOUND" : "NOT FOUND")}");
-            }
-            _affectPrefab = found;
+            _affectPrefab = affect;
             return _affectPrefab;
+        }
+
+        /// <summary>Read the projectilePrefab from the zero-gravity staff component on the item prefab.</summary>
+        private static PrefabRef? ExtractProjectileRef(GameObject itemGO)
+        {
+            var staff = itemGO.GetComponent<ItemStaffZeroGravity>();
+            return staff != null ? staff.projectilePrefab : null;
         }
 
         private void MaybeLog()
@@ -147,12 +163,11 @@ namespace ForceFloat
             _logAccum = 0f;
             var me = PlayerAvatar.instance;
             if (me == null) return;
-            bool master = SemiFunc.IsMasterClientOrSingleplayer();
             var tumble = AvatarTumbleRef(me);
             var pgo = tumble != null ? TumblePhysGrabObjectRef(tumble) : null;
             string y = pgo != null && pgo.rb != null ? pgo.rb.position.y.ToString("F2") : "?";
-            Plugin.Log.LogInfo($"[FloatDiag] master={master} local.isTumbling={AvatarIsTumblingRef(me)} " +
-                               $"activeAffect={(me.activeZeroGravityAffect != null)} bodyY={y}");
+            Plugin.Log.LogInfo($"[FloatDiag] master={SemiFunc.IsMasterClientOrSingleplayer()} " +
+                               $"local.isTumbling={AvatarIsTumblingRef(me)} activeAffect={(me.activeZeroGravityAffect != null)} bodyY={y}");
         }
     }
 }
