@@ -1,13 +1,16 @@
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 
 namespace ForcedFriendship
 {
     /// <summary>
-    /// Runs on every client. Tracks each player's post-truck grace timer (the host reads it to
-    /// suppress damage; clients read it for beam color), computes the local player's current
-    /// safety zone, and draws the optional on-screen indicators: a grace countdown and a subtle
-    /// persistent status box tinted by your current zone. Display is local — never synced.
+    /// Runs on every client and is the single source of truth for display: each frame it builds
+    /// player states, tracks each player's post-truck grace timer (the host reads it to suppress
+    /// damage), resolves anchors, and computes every player's display zone (grace/truck force
+    /// Safe). BeamRenderer draws from this data so the beam and the on-screen indicator can never
+    /// disagree. Also draws the local indicators: a grace countdown and a subtle status border.
+    /// All display is local — never synced.
     /// </summary>
     internal class StatusHud : MonoBehaviour
     {
@@ -20,6 +23,20 @@ namespace ForcedFriendship
         private readonly List<PhysGrabCart> _carts = new List<PhysGrabCart>();
         private readonly List<Vec3> _cartPositions = new List<Vec3>();
         private float _cartRescan;
+
+        private AnchorResult[] _anchors = Array.Empty<AnchorResult>();
+        private BeamZone[] _zones = Array.Empty<BeamZone>();
+
+        /// <summary>Number of tracked players this frame; index range for the *At accessors.</summary>
+        internal int PlayerCount { get; private set; }
+        internal PlayerAvatar AvatarAt(int i) => _avatars[i];
+        internal AnchorResult AnchorAt(int i) => _anchors[i];
+        internal BeamZone ZoneAt(int i) => _zones[i];
+        internal Vector3 PlayerPosAt(int i)
+        {
+            PlayerState s = _states[i];
+            return new Vector3(s.X, s.Y, s.Z);
+        }
 
         /// <summary>The local player's current zone (truck/grace force Safe). Valid when LocalActive.</summary>
         internal BeamZone LocalZone { get; private set; } = BeamZone.Safe;
@@ -40,12 +57,13 @@ namespace ForcedFriendship
             if (!Plugin.IsInGameplay())
             {
                 _grace.Clear();
+                PlayerCount = 0;
                 LocalActive = false;
                 return;
             }
 
             var list = GameDirector.instance?.PlayerList;
-            if (list == null) { LocalActive = false; return; }
+            if (list == null) { PlayerCount = 0; LocalActive = false; return; }
 
             float period = Plugin.ActiveGracePeriod;
             float dt = Time.deltaTime;
@@ -75,7 +93,7 @@ namespace ForcedFriendship
                 if (k == null || !_avatars.Contains(k)) _stale.Add(k!);
             foreach (var k in _stale) _grace.Remove(k);
 
-            // Resolve the local player's zone (same logic the beams use, plus grace -> Safe).
+            // Resolve anchors (with the current cart roster) and compute each player's display zone.
             AnchorMode mode = Plugin.ActiveMode;
             _cartRescan -= dt;
             if (mode != AnchorMode.Cart) _carts.Clear();
@@ -90,22 +108,27 @@ namespace ForcedFriendship
                     _cartPositions.Add(new Vec3(cp.x, cp.y, cp.z));
                 }
 
-            AnchorResult[] anchors =
-                DamageCalculator.ResolveAnchors(_states, mode, _cartPositions, Plugin.ActiveIncludeHeight);
+            _anchors = DamageCalculator.ResolveAnchors(_states, mode, _cartPositions, Plugin.ActiveIncludeHeight);
 
+            int count = _states.Count;
+            if (_zones.Length < count) _zones = new BeamZone[count];
+            float safeD = Plugin.ActiveSafeDistance;
+            float warnF = Plugin.WarnFraction;
+            for (int i = 0; i < count; i++)
+            {
+                BeamZone z = DamageCalculator.ZoneForAnchor(_anchors[i], safeD, warnF);
+                if (IsInGrace(_avatars[i])) z = BeamZone.Safe;   // grace -> green
+                _zones[i] = z;
+            }
+            PlayerCount = count;
+
+            // Local player's zone (for the indicator + the local beam).
             LocalActive = false;
             var local = PlayerAvatar.instance;
             if (local != null)
             {
                 int idx = _avatars.IndexOf(local);
-                if (idx >= 0)
-                {
-                    BeamZone z = DamageCalculator.ZoneForAnchor(
-                        anchors[idx], Plugin.ActiveSafeDistance, Plugin.WarnFraction);
-                    if (IsInGrace(local)) z = BeamZone.Safe;
-                    LocalZone = z;
-                    LocalActive = true;
-                }
+                if (idx >= 0) { LocalZone = _zones[idx]; LocalActive = true; }
             }
         }
 
@@ -122,16 +145,13 @@ namespace ForcedFriendship
                 if (g > 0f) DrawTimer(Mathf.CeilToInt(g));
             }
 
-            // Persistent status box, tinted by your current zone.
+            // Persistent status indicator — a subtle screen-edge border tinted by your zone.
+            // (A screen-edge frame avoids depending on the exact HUD position.)
             if (Plugin.StatusIndicator.Value)
             {
                 Color c = BeamColors.For(LocalZone, Plugin.BeamsColorblind.Value);
-                c.a = 0.65f;
-                // Near the bottom-centre, roughly framing the health/stamina HUD.
-                float w = Mathf.Min(320f, Screen.width * 0.26f);
-                float h = 84f;
-                var rect = new Rect((Screen.width - w) * 0.5f, Screen.height - h - 90f, w, h);
-                DrawBorder(rect, c, 3f);
+                c.a = 0.5f;
+                DrawBorder(new Rect(0f, 0f, Screen.width, Screen.height), c, 4f);
             }
         }
 

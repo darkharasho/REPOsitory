@@ -23,8 +23,8 @@
   isn't punished when everyone else has gone safe.
 - New `GracePeriod` (default 30s, max 60s): leaving the truck grants a damage-free grace window
   with an on-screen countdown.
-- New `Beams/StatusIndicator` (local, default false): a subtle on-screen box tinted by your
-  current safety color, near the health/stamina HUD.
+- New `Beams/StatusIndicator` (local, default false): a subtle screen-edge border tinted by
+  your current safety color.
 
 ## 0.2.0
 - New `AnchorMode` setting: `Buddy` (stay near the nearest living player, the original

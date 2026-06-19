@@ -4,110 +4,66 @@ using UnityEngine;
 namespace ForcedFriendship
 {
     /// <summary>
-    /// Runs on every client. Each frame it draws a colored LineRenderer from each rendered
-    /// player to their anchor (nearest buddy or the cart), sharing DamageCalculator's pure
-    /// anchor + zone logic with the host. Purely cosmetic — it never applies damage.
-    /// Green = safe, yellow = approaching the edge, red = past the safe radius (taking damage).
+    /// Runs on every client. Draws a colored LineRenderer tether for each player using the
+    /// per-player anchors and zones computed by <see cref="StatusHud"/> — the single source of
+    /// truth — so the beam color always matches the on-screen status indicator. Purely cosmetic;
+    /// it never applies damage.
     /// </summary>
     internal class BeamRenderer : MonoBehaviour
     {
         private const float BeamHeight = 1f;   // raise endpoints to chest height
-        private const float CartRescanInterval = 1f;
 
         private readonly Dictionary<PlayerAvatar, LineRenderer> _lines =
             new Dictionary<PlayerAvatar, LineRenderer>();
-        private readonly List<PlayerState> _states = new List<PlayerState>();
-        private readonly List<PlayerAvatar> _avatars = new List<PlayerAvatar>();
+        private readonly List<PlayerAvatar> _current = new List<PlayerAvatar>();
         private readonly List<PlayerAvatar> _stale = new List<PlayerAvatar>();
-        private readonly List<PhysGrabCart> _carts = new List<PhysGrabCart>();
-        private readonly List<Vec3> _cartPositions = new List<Vec3>();
 
         // Instance-scoped so the material's lifetime matches this renderer (which BepInEx keeps
         // alive across level loads) — avoids a destroyed shared material leaving stale beams.
         private Material? _material;
-        private float _cartRescan;
 
         private void Update()
         {
-            // Beams display the host's rule, so gate on the synced ActiveEnabled, plus the local
-            // display toggle. (ActiveEnabled == local Enabled on the host / in singleplayer.)
             if (!Plugin.ActiveEnabled || !Plugin.BeamsEnabled.Value || !Plugin.IsInGameplay())
             {
                 HideAll();
                 return;
             }
 
-            var list = GameDirector.instance?.PlayerList;
-            if (list == null) { HideAll(); return; }
-
-            AnchorMode mode = Plugin.ActiveMode;
-            bool cartMode = mode == AnchorMode.Cart;
-
-            // Re-scan the cart roster on an interval (or when empty); rebuild positions every frame
-            // from the cached references since carts move. Destroyed carts read as null and skip.
-            _cartRescan -= Time.deltaTime;
-            if (!cartMode) _carts.Clear(); // drop stale cart refs when not in Cart mode
-            else if (_carts.Count == 0 || _cartRescan <= 0f)
-            {
-                CartLocator.FindMainCarts(_carts);
-                _cartRescan = CartRescanInterval;
-            }
-
-            _states.Clear();
-            _avatars.Clear();
-            foreach (var pa in list)
-            {
-                if (pa == null) continue;
-                Vector3 pos = pa.transform.position;
-                _states.Add(new PlayerState(pos.x, pos.y, pos.z,
-                    PlayerLiveness.IsAlive(pa), PlayerLiveness.IsInTruck(pa)));
-                _avatars.Add(pa);
-            }
-
-            _cartPositions.Clear();
-            if (cartMode)
-            {
-                foreach (PhysGrabCart c in _carts)
-                {
-                    if (c == null) continue;
-                    Vector3 cp = c.transform.position;
-                    _cartPositions.Add(new Vec3(cp.x, cp.y, cp.z));
-                }
-            }
-
-            AnchorResult[] anchors =
-                DamageCalculator.ResolveAnchors(_states, mode, _cartPositions, Plugin.ActiveIncludeHeight);
+            var hud = StatusHud.Instance;
+            if (hud == null) { HideAll(); return; }
 
             PlayerAvatar? local = PlayerAvatar.instance;
             bool showAll = Plugin.BeamsShowAll.Value;
             bool alwaysShow = Plugin.BeamsAlwaysShow.Value;
             bool colorblind = Plugin.BeamsColorblind.Value;
-            float safe = Plugin.ActiveSafeDistance;
-            float warn = Plugin.WarnFraction;
             float width = Plugin.BeamWidthWorld;
             float opacity = Plugin.BeamOpacity;
 
-            for (int i = 0; i < _avatars.Count; i++)
+            _current.Clear();
+            int n = hud.PlayerCount;
+            for (int i = 0; i < n; i++)
             {
-                PlayerAvatar pa = _avatars[i];
-                AnchorResult a = anchors[i];
-                BeamZone zone = DamageCalculator.ZoneForAnchor(a, safe, warn);
+                PlayerAvatar pa = hud.AvatarAt(i);
+                if (pa == null) continue;
+                _current.Add(pa);
+
+                AnchorResult a = hud.AnchorAt(i);
+                BeamZone zone = hud.ZoneAt(i);
                 bool render = DamageCalculator.ShouldDrawBeam(zone, a.HasAnchor, alwaysShow)
                     && (showAll || pa == local);
                 if (!render) { HideLine(pa); continue; }
 
                 LineRenderer lr = GetLine(pa);
-                PlayerState self = _states[i];
-                Vector3 from = new Vector3(self.X, self.Y, self.Z) + Vector3.up * BeamHeight;
+                Vector3 from = hud.PlayerPosAt(i) + Vector3.up * BeamHeight;
                 Vector3 to = new Vector3(a.X, a.Y, a.Z) + Vector3.up * BeamHeight;
                 lr.enabled = true;
-                // Set start/end width explicitly (not just widthMultiplier) so shrinking the
-                // Width config takes effect immediately and doesn't depend on the width curve.
+                // Set start/end width explicitly (not just widthMultiplier) so changing the Width
+                // config takes effect immediately and doesn't depend on the width curve.
                 lr.startWidth = width;
                 lr.endWidth = width;
                 lr.SetPosition(0, from);
                 lr.SetPosition(1, to);
-                if (StatusHud.Instance != null && StatusHud.Instance.IsInGrace(pa)) zone = BeamZone.Safe;
                 Color c = BeamColors.For(zone, colorblind);
                 c.a = opacity;
                 lr.startColor = c;
@@ -156,12 +112,12 @@ namespace ForcedFriendship
                 if (lr != null) lr.enabled = false;
         }
 
-        // Destroy LineRenderers whose player left the list (e.g. disconnected).
+        // Destroy LineRenderers whose player left the roster (e.g. disconnected).
         private void CleanupDeparted()
         {
             _stale.Clear();
             foreach (var key in _lines.Keys)
-                if (key == null || !_avatars.Contains(key)) _stale.Add(key!);
+                if (key == null || !_current.Contains(key)) _stale.Add(key!);
             foreach (var key in _stale)
             {
                 if (_lines.TryGetValue(key, out var lr) && lr != null) Destroy(lr.gameObject);
@@ -169,9 +125,8 @@ namespace ForcedFriendship
             }
         }
 
-        // Alpha-blended unlit line — translucent and soft (the LineRenderer's vertex-color alpha,
-        // driven by Beams/Opacity, shows through), rather than an additive neon glow. Sprites/Default
-        // is a built-in transparent unlit shader present in every Unity build.
+        // Alpha-blended unlit line — translucent and soft (the vertex-color alpha, driven by
+        // Beams/Opacity, shows through). Sprites/Default is a built-in transparent unlit shader.
         private Material BeamMaterial()
         {
             if (_material == null)
@@ -181,6 +136,5 @@ namespace ForcedFriendship
             }
             return _material;
         }
-
     }
 }

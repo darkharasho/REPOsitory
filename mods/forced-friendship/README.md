@@ -23,7 +23,7 @@ Config file: `BepInEx/config/darkharasho.ForcedFriendship.cfg`. All numeric sett
 | `Width` | Beams | `2` | Tether thickness (1–20; 1 = thinnest, approximates the grab beam) |
 | `Opacity` | Beams | `40` | Beam opacity % (1–100; lower is more translucent) |
 | `Colorblind` | Beams | `false` | Colorblind-friendly palette (blue/yellow/red) instead of green/yellow/red — local to you |
-| `StatusIndicator` | Beams | `false` | Subtle on-screen box tinted by your current safety color, near the health/stamina HUD — local to you |
+| `StatusIndicator` | Beams | `false` | Subtle screen-edge border tinted by your current safety color — local to you |
 
 The **gameplay rule** (`Enabled`, `AnchorMode`, `SafeDistance`, `BandWidth`, `DamagePerBand`,
 `TickInterval`) is taken from the **host** and synced to everyone, so each client's beams match

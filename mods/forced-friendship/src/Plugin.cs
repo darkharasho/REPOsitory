@@ -107,8 +107,8 @@ namespace ForcedFriendship
                 "Use a colorblind-friendly palette (blue safe / yellow warn / red danger) instead " +
                 "of green/yellow/red. Local to you — not synced from the host.");
             StatusIndicator = Config.Bind("Beams", "StatusIndicator", false,
-                "Show a subtle on-screen box tinted by your current safety color (green/yellow/red), " +
-                "near the health/stamina HUD, so you always know your status. Local to you.");
+                "Show a subtle screen-edge border tinted by your current safety color " +
+                "(green/yellow/red) so you always know your status. Local to you.");
 
             ResetToLocalConfig();
 

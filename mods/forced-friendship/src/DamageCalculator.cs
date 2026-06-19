@@ -168,22 +168,26 @@ namespace ForcedFriendship
 
                 float nearest = float.PositiveInfinity;
                 int nearestIdx = -1;
+                bool anyOutOfTruck = false;
                 for (int j = 0; j < players.Count; j++)
                 {
                     if (j == i) continue;
                     PlayerState other = players[j];
-                    // Skip dead players and players parked in the truck — they can't anchor you.
-                    // So if everyone else has gone to the truck, the lone explorer has no anchor
-                    // and takes no damage.
-                    if (!other.Alive || other.InTruck) continue;
+                    if (!other.Alive) continue;
+                    // In-truck buddies still anchor you (so a nearby one keeps you safe by
+                    // proximity), but track whether anyone is actually out exploring.
+                    if (!other.InTruck) anyOutOfTruck = true;
 
                     float d = Distance(self, other, includeHeight);
                     if (d < nearest) { nearest = d; nearestIdx = j; }
                 }
 
-                if (nearestIdx < 0) { result[i] = AnchorResult.None; continue; }
+                if (nearestIdx < 0) { result[i] = AnchorResult.None; continue; } // no living buddy
+                // Safe if you're in the truck, or if EVERY other living player is parked in the
+                // truck (the lone explorer left out isn't punished).
+                bool safe = self.InTruck || !anyOutOfTruck;
                 PlayerState n = players[nearestIdx];
-                result[i] = new AnchorResult(n.X, n.Y, n.Z, nearest, true, self.InTruck);
+                result[i] = new AnchorResult(n.X, n.Y, n.Z, nearest, true, safe);
             }
 
             return result;

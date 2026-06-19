@@ -276,30 +276,37 @@ public class DamageCalculatorTests
     // --- Truck safe zone ---
 
     [Fact]
-    public void ResolveAnchors_marks_in_truck_player_safe()
+    public void ResolveAnchors_in_truck_self_is_safe_and_truck_buddy_still_anchors_by_proximity()
     {
         var players = new[]
         {
-            new PlayerState(0f, 0f, 0f, alive: true, inTruck: true),
-            new PlayerState(100f, 0f, 0f, alive: true),
+            new PlayerState(0f, 0f, 0f, alive: true, inTruck: true), // P0 in truck
+            new PlayerState(5f, 0f, 0f, alive: true),                // P1 right next to the truck
+            new PlayerState(100f, 0f, 0f, alive: true),              // P2 out exploring
         };
         var anchors = DamageCalculator.ResolveAnchors(players, AnchorMode.Buddy, NoCarts);
-        Assert.True(anchors[0].Safe);      // in truck -> safe
-        Assert.True(anchors[0].HasAnchor); // still anchored (beam can draw if the mode wants it)
+        Assert.True(anchors[0].Safe);                          // in the truck
+        // P1 has a non-truck buddy out there (P2), so it's NOT the all-parked case; but its
+        // nearest anchor is the in-truck P0 (5 units) -> close -> not damaged by distance.
         Assert.False(anchors[1].Safe);
+        Assert.True(anchors[1].HasAnchor);
+        Assert.Equal(0f, anchors[1].X, precision: 4);          // anchored on the in-truck buddy
+        Assert.Equal(5f, anchors[1].Distance, precision: 4);
     }
 
     [Fact]
-    public void ResolveAnchors_buddy_ignores_in_truck_players_as_anchors()
+    public void ResolveAnchors_lone_explorer_safe_when_all_others_parked_in_truck()
     {
-        // Explorer far out; their only other living buddy is parked in the truck.
         var players = new[]
         {
-            new PlayerState(0f, 0f, 0f, alive: true),                  // explorer
-            new PlayerState(100f, 0f, 0f, alive: true, inTruck: true), // buddy in the truck
+            new PlayerState(0f, 0f, 0f, alive: true),                   // explorer, far out
+            new PlayerState(50f, 0f, 0f, alive: true, inTruck: true),   // everyone else
+            new PlayerState(80f, 0f, 0f, alive: true, inTruck: true),   // ...is in the truck
         };
         var anchors = DamageCalculator.ResolveAnchors(players, AnchorMode.Buddy, NoCarts);
-        Assert.False(anchors[0].HasAnchor); // no eligible buddy -> no anchor -> no damage
+        Assert.True(anchors[0].Safe);       // all other living players parked -> not punished
+        var dmg = DamageCalculator.EvaluateDamage(anchors, Settings());
+        Assert.Equal(0, dmg[0]);
     }
 
     [Fact]
