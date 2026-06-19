@@ -16,6 +16,10 @@ namespace ForcedFriendship
         internal static ConfigEntry<float> BandWidth = null!;
         internal static ConfigEntry<int> DamagePerBand = null!;
         internal static ConfigEntry<float> TickInterval = null!;
+        internal static ConfigEntry<AnchorMode> Mode = null!;
+        internal static ConfigEntry<bool> BeamsEnabled = null!;
+        internal static ConfigEntry<bool> BeamsShowAll = null!;
+        internal static ConfigEntry<float> BeamsWarnPercent = null!;
 
         private void Awake()
         {
@@ -39,6 +43,20 @@ namespace ForcedFriendship
                 new ConfigDescription(
                     "Seconds between damage evaluations.",
                     new AcceptableValueRange<float>(0.1f, 60f)));
+
+            Mode = Config.Bind("General", "AnchorMode", AnchorMode.Buddy,
+                "Buddy = stay near the nearest living player (default). " +
+                "Cart = stay near the main hauling cart instead.");
+
+            BeamsEnabled = Config.Bind("Beams", "Enabled", true,
+                "Draw a tether beam from each player to their anchor.");
+            BeamsShowAll = Config.Bind("Beams", "ShowAllPlayers", true,
+                "Show beams for every living player. If false, only your own beam is drawn.");
+            BeamsWarnPercent = Config.Bind("Beams", "WarnPercent", 0.25f,
+                new ConfigDescription(
+                    "Fraction of SafeDistance, at the outer edge, where the beam turns yellow " +
+                    "before it turns red. 0 disables the yellow zone.",
+                    new AcceptableValueRange<float>(0f, 1f)));
 
             var harmony = new Harmony("darkharasho.ForcedFriendship");
             harmony.PatchAll();

@@ -47,7 +47,22 @@ namespace ForcedFriendship
                 bandWidth: Plugin.BandWidth.Value,
                 damagePerBand: Plugin.DamagePerBand.Value);
 
-            int[] damage = DamageCalculator.Evaluate(_states, settings);
+            bool hasCart = false;
+            float cx = 0f, cy = 0f, cz = 0f;
+            if (Plugin.Mode.Value == AnchorMode.Cart)
+            {
+                PhysGrabCart? cart = CartLocator.FindMainCart();
+                if (cart != null)
+                {
+                    Vector3 cp = cart.transform.position;
+                    hasCart = true;
+                    cx = cp.x; cy = cp.y; cz = cp.z;
+                }
+            }
+
+            AnchorResult[] anchors =
+                DamageCalculator.ResolveAnchors(_states, Plugin.Mode.Value, hasCart, cx, cy, cz);
+            int[] damage = DamageCalculator.EvaluateDamage(anchors, settings);
             for (int i = 0; i < damage.Length; i++)
             {
                 if (damage[i] <= 0) continue;
