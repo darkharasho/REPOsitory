@@ -37,6 +37,44 @@ namespace ForcedFriendship
         }
     }
 
+    /// <summary>Where each player measures its distance from.</summary>
+    public enum AnchorMode
+    {
+        /// <summary>Nearest living other player (the original rule).</summary>
+        Buddy,
+        /// <summary>The main hauling cart.</summary>
+        Cart,
+    }
+
+    /// <summary>Beam color band for the tether visual.</summary>
+    public enum BeamZone
+    {
+        Safe,   // green
+        Warn,   // yellow
+        Danger, // red — taking damage
+    }
+
+    /// <summary>One player's resolved anchor position and distance to it.</summary>
+    public readonly struct AnchorResult
+    {
+        public readonly float X;
+        public readonly float Y;
+        public readonly float Z;
+        public readonly float Distance;
+        public readonly bool HasAnchor;
+
+        public AnchorResult(float x, float y, float z, float distance, bool hasAnchor)
+        {
+            X = x;
+            Y = y;
+            Z = z;
+            Distance = distance;
+            HasAnchor = hasAnchor;
+        }
+
+        public static AnchorResult None => new AnchorResult(0f, 0f, 0f, 0f, false);
+    }
+
     /// <summary>Pure banded damage-over-time math. No Unity/Photon/BepInEx dependencies.</summary>
     public static class DamageCalculator
     {
@@ -61,22 +99,32 @@ namespace ForcedFriendship
         }
 
         /// <summary>
-        /// Returns the HP to apply to each player this tick (same order/length as
-        /// <paramref name="players"/>). A living player is damaged by the band of the
-        /// distance to its nearest living OTHER player; dead players neither anchor
-        /// others nor take damage; a player with no living other player takes none.
+        /// Resolves each player's anchor position and distance. In Buddy mode the anchor
+        /// is the nearest living OTHER player. In Cart mode every living player anchors on
+        /// the cart; if <paramref name="hasCart"/> is false, Cart mode falls back to Buddy.
+        /// Dead players get <see cref="AnchorResult.None"/>.
         /// </summary>
-        public static int[] Evaluate(IReadOnlyList<PlayerState> players, in DamageSettings s)
+        public static AnchorResult[] ResolveAnchors(
+            IReadOnlyList<PlayerState> players,
+            AnchorMode mode, bool hasCart, float cartX, float cartY, float cartZ)
         {
-            var result = new int[players.Count];
-            if (!s.Enabled) return result;
+            var result = new AnchorResult[players.Count];
+            bool useCart = mode == AnchorMode.Cart && hasCart;
+            var cart = new PlayerState(cartX, cartY, cartZ, true);
 
             for (int i = 0; i < players.Count; i++)
             {
                 PlayerState self = players[i];
-                if (!self.Alive) continue;
+                if (!self.Alive) { result[i] = AnchorResult.None; continue; }
+
+                if (useCart)
+                {
+                    result[i] = new AnchorResult(cartX, cartY, cartZ, Distance(self, cart), true);
+                    continue;
+                }
 
                 float nearest = float.PositiveInfinity;
+                int nearestIdx = -1;
                 for (int j = 0; j < players.Count; j++)
                 {
                     if (j == i) continue;
@@ -84,16 +132,60 @@ namespace ForcedFriendship
                     if (!other.Alive) continue;
 
                     float d = Distance(self, other);
-                    if (d < nearest) nearest = d;
+                    if (d < nearest) { nearest = d; nearestIdx = j; }
                 }
 
-                if (float.IsPositiveInfinity(nearest)) continue; // no living other player
+                if (nearestIdx < 0) { result[i] = AnchorResult.None; continue; }
+                PlayerState n = players[nearestIdx];
+                result[i] = new AnchorResult(n.X, n.Y, n.Z, nearest, true);
+            }
 
-                int band = Band(nearest, s.SafeDistance, s.BandWidth);
+            return result;
+        }
+
+        /// <summary>
+        /// Classifies a distance into a beam color band. Past the safe radius is Danger
+        /// (taking damage). Within the last <paramref name="warnPercent"/> fraction of the
+        /// safe radius (and up to/including it) is Warn. Otherwise Safe. A warnPercent of 0
+        /// (or less) removes the yellow zone; values are clamped to [0, 1].
+        /// </summary>
+        public static BeamZone Classify(float distance, float safeDistance, float warnPercent)
+        {
+            if (distance > safeDistance) return BeamZone.Danger;
+            if (warnPercent <= 0f) return BeamZone.Safe;
+            float p = warnPercent > 1f ? 1f : warnPercent;
+            float warnStart = safeDistance * (1f - p);
+            return distance >= warnStart ? BeamZone.Warn : BeamZone.Safe;
+        }
+
+        /// <summary>
+        /// HP to apply per player this tick from precomputed anchors. A player with no
+        /// anchor takes none; otherwise damage = band(distance) * DamagePerBand.
+        /// </summary>
+        public static int[] EvaluateDamage(IReadOnlyList<AnchorResult> anchors, in DamageSettings s)
+        {
+            var result = new int[anchors.Count];
+            if (!s.Enabled) return result;
+
+            for (int i = 0; i < anchors.Count; i++)
+            {
+                AnchorResult a = anchors[i];
+                if (!a.HasAnchor) continue;
+                int band = Band(a.Distance, s.SafeDistance, s.BandWidth);
                 result[i] = band * s.DamagePerBand;
             }
 
             return result;
+        }
+
+        /// <summary>
+        /// Buddy-mode convenience: each living player is damaged by the band of the distance
+        /// to its nearest living other player. Equivalent to ResolveAnchors(Buddy) + EvaluateDamage.
+        /// </summary>
+        public static int[] Evaluate(IReadOnlyList<PlayerState> players, in DamageSettings s)
+        {
+            AnchorResult[] anchors = ResolveAnchors(players, AnchorMode.Buddy, false, 0f, 0f, 0f);
+            return EvaluateDamage(anchors, s);
         }
     }
 }

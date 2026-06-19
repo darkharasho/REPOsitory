@@ -129,4 +129,113 @@ public class DamageCalculatorTests
         var result = DamageCalculator.Evaluate(players, Settings());
         Assert.Equal(new[] { 15, 15 }, result);
     }
+
+    // --- Classify: safeDistance=15, warnPercent=0.25 -> warnStart=11.25 ---
+
+    [Theory]
+    [InlineData(0f, BeamZone.Safe)]
+    [InlineData(11.24f, BeamZone.Safe)]
+    [InlineData(11.25f, BeamZone.Warn)]   // exactly at warn edge
+    [InlineData(15f, BeamZone.Warn)]      // exactly at safe radius -> still warn (not damaged yet)
+    [InlineData(15.01f, BeamZone.Danger)] // past safe radius -> taking damage
+    public void Classify_maps_distance_to_zone(float distance, BeamZone expected)
+    {
+        Assert.Equal(expected, DamageCalculator.Classify(distance, safeDistance: 15f, warnPercent: 0.25f));
+    }
+
+    [Fact]
+    public void Classify_warnPercent_zero_has_no_yellow_zone()
+    {
+        Assert.Equal(BeamZone.Safe, DamageCalculator.Classify(14.9f, 15f, 0f));
+        Assert.Equal(BeamZone.Danger, DamageCalculator.Classify(15.1f, 15f, 0f));
+    }
+
+    // --- ResolveAnchors ---
+
+    [Fact]
+    public void ResolveAnchors_buddy_picks_nearest_living_other()
+    {
+        var players = new[]
+        {
+            new PlayerState(0f, 0f, 0f, alive: true),
+            new PlayerState(100f, 0f, 0f, alive: true),
+            new PlayerState(31f, 0f, 0f, alive: true), // nearest to player 0
+        };
+        var anchors = DamageCalculator.ResolveAnchors(players, AnchorMode.Buddy, hasCart: false, 0f, 0f, 0f);
+        Assert.True(anchors[0].HasAnchor);
+        Assert.Equal(31f, anchors[0].Distance, precision: 4);
+        Assert.Equal(31f, anchors[0].X, precision: 4); // anchored on the nearest other's position
+    }
+
+    [Fact]
+    public void ResolveAnchors_buddy_lone_living_player_has_no_anchor()
+    {
+        var players = new[]
+        {
+            new PlayerState(0f, 0f, 0f, alive: true),
+            new PlayerState(5f, 0f, 0f, alive: false),
+        };
+        var anchors = DamageCalculator.ResolveAnchors(players, AnchorMode.Buddy, hasCart: false, 0f, 0f, 0f);
+        Assert.False(anchors[0].HasAnchor);
+    }
+
+    [Fact]
+    public void ResolveAnchors_dead_self_has_no_anchor()
+    {
+        var players = new[]
+        {
+            new PlayerState(0f, 0f, 0f, alive: false),
+            new PlayerState(3f, 0f, 0f, alive: true),
+        };
+        var anchors = DamageCalculator.ResolveAnchors(players, AnchorMode.Buddy, hasCart: false, 0f, 0f, 0f);
+        Assert.False(anchors[0].HasAnchor);
+    }
+
+    [Fact]
+    public void ResolveAnchors_cart_measures_every_living_player_to_cart()
+    {
+        var players = new[]
+        {
+            new PlayerState(0f, 0f, 0f, alive: true),
+            new PlayerState(3f, 0f, 0f, alive: true),
+        };
+        var anchors = DamageCalculator.ResolveAnchors(players, AnchorMode.Cart, hasCart: true, 0f, 0f, 4f);
+        Assert.Equal(4f, anchors[0].Distance, precision: 4);
+        Assert.Equal(5f, anchors[1].Distance, precision: 4); // (3,0,0)->(0,0,4) = 5
+        Assert.Equal(4f, anchors[0].Z, precision: 4);        // anchored on the cart
+    }
+
+    [Fact]
+    public void ResolveAnchors_cart_falls_back_to_buddy_when_no_cart()
+    {
+        var players = new[]
+        {
+            new PlayerState(0f, 0f, 0f, alive: true),
+            new PlayerState(31f, 0f, 0f, alive: true),
+        };
+        var anchors = DamageCalculator.ResolveAnchors(players, AnchorMode.Cart, hasCart: false, 0f, 0f, 0f);
+        Assert.Equal(31f, anchors[0].Distance, precision: 4); // nearest other, not the (ignored) cart args
+    }
+
+    // --- EvaluateDamage ---
+
+    [Fact]
+    public void EvaluateDamage_applies_band_formula_per_anchor()
+    {
+        var anchors = new[]
+        {
+            new AnchorResult(0f, 0f, 0f, distance: 31f, hasAnchor: true), // band 3 -> 15
+            new AnchorResult(0f, 0f, 0f, distance: 0f, hasAnchor: false), // no anchor -> 0
+        };
+        var result = DamageCalculator.EvaluateDamage(anchors, Settings());
+        Assert.Equal(new[] { 15, 0 }, result);
+    }
+
+    [Fact]
+    public void EvaluateDamage_disabled_returns_all_zero()
+    {
+        var anchors = new[] { new AnchorResult(0f, 0f, 0f, 100f, true) };
+        var result = DamageCalculator.EvaluateDamage(anchors, Settings(enabled: false));
+        Assert.Equal(new[] { 0 }, result);
+    }
 }
