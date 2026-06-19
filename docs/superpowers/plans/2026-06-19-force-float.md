@@ -6,7 +6,7 @@
 
 **Architecture:** One BepInEx plugin spawns a single persistent `FloatDriver` MonoBehaviour. Each frame, during levels only, the driver keeps the local player tumbling and gravity-free, drives camera-directed drift in `FixedUpdate`, and (as master client) tumbles every other player in `GameDirector.PlayerList`. No Harmony patches — it only calls public game APIs, mirroring the game's own `SemiAffectZeroGravity`. A small Unity-free `FloatMath` helper holds the drift-direction math so it can be unit-tested.
 
-**Tech Stack:** C# / .NET `netstandard2.1`, BepInEx 5.4.21, Unity, Photon (transitively, via game DLLs). Tests: xUnit on `net6.0`.
+**Tech Stack:** C# / .NET `netstandard2.1`, BepInEx 5.4.21, Unity, Photon (transitively, via game DLLs). Tests: xUnit on `net10.0` (only .NET 10 SDK installed locally).
 
 ## Global Constraints
 
@@ -21,7 +21,7 @@
 
 ## Verified Game APIs (current Assembly-CSharp)
 
-All public; no reflection needed:
+NOTE (corrected during implementation): the five members `PlayerAvatar.{tumble,isLocal,InputDirectionRaw}` and `PlayerTumble.{rb,isTumbling}` are actually `internal`, not public — they are accessed via cached `AccessTools.FieldRef` (the ForcedFriendship pattern). The remaining members below are genuinely public:
 
 - `PlayerController.instance` (static); `PlayerController.AntiGravity(float timer)` — cancels gravity for `timer` seconds; call each frame.
 - `PlayerAvatar.instance` (static, local avatar). Fields/props used: `isLocal` (bool), `isTumbling` (bool), `localCamera` (`PlayerLocalCamera`), `InputDirectionRaw` (`Vector3`), `tumble` (`PlayerTumble`).
