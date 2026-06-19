@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using HarmonyLib;
 using Photon.Pun;
 using UnityEngine;
 
@@ -12,13 +11,6 @@ namespace ForcedFriendship
     /// </summary>
     internal class ForcedFriendshipDriver : MonoBehaviour
     {
-        // PlayerAvatar.deadSet / .isDisabled are 'internal' in Assembly-CSharp and this mod
-        // builds against the un-publicized game DLL, so they are read via cached field-ref delegates.
-        private static readonly AccessTools.FieldRef<PlayerAvatar, bool> DeadSetRef =
-            AccessTools.FieldRefAccess<PlayerAvatar, bool>("deadSet");
-        private static readonly AccessTools.FieldRef<PlayerAvatar, bool> IsDisabledRef =
-            AccessTools.FieldRefAccess<PlayerAvatar, bool>("isDisabled");
-
         private float _accum;
         private readonly List<PlayerState> _states = new List<PlayerState>();
         private readonly List<PlayerAvatar> _avatars = new List<PlayerAvatar>();
@@ -44,7 +36,7 @@ namespace ForcedFriendship
             {
                 if (pa == null) continue;
                 Vector3 pos = pa.transform.position;
-                bool alive = !DeadSetRef(pa) && !IsDisabledRef(pa);
+                bool alive = PlayerLiveness.IsAlive(pa);
                 _states.Add(new PlayerState(pos.x, pos.y, pos.z, alive));
                 _avatars.Add(pa);
             }
