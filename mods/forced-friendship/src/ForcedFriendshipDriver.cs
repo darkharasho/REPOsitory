@@ -66,10 +66,13 @@ namespace ForcedFriendship
             AnchorResult[] anchors =
                 DamageCalculator.ResolveAnchors(_states, Plugin.ActiveMode, _cartPositions, Plugin.ActiveIncludeHeight);
             int[] damage = DamageCalculator.EvaluateDamage(anchors, settings);
+            var hud = StatusHud.Instance;
             for (int i = 0; i < damage.Length; i++)
             {
                 if (damage[i] <= 0) continue;
                 PlayerAvatar pa = _avatars[i];
+                // Post-truck grace: no damage until the timer runs out.
+                if (hud != null && hud.IsInGrace(pa)) continue;
                 if (pa.playerHealth == null) continue;
                 // Position-independent DoT: pass Vector3.zero so HurtOtherRPC's <2f proximity
                 // guard never drops a tick for a fast-moving remote player whose host-side

@@ -107,7 +107,8 @@ namespace ForcedFriendship
                 lr.endWidth = width;
                 lr.SetPosition(0, from);
                 lr.SetPosition(1, to);
-                Color c = ZoneColor(zone, colorblind);
+                if (StatusHud.Instance != null && StatusHud.Instance.IsInGrace(pa)) zone = BeamZone.Safe;
+                Color c = BeamColors.For(zone, colorblind);
                 c.a = opacity;
                 lr.startColor = c;
                 lr.endColor = c;
@@ -181,26 +182,5 @@ namespace ForcedFriendship
             return _material;
         }
 
-        // Muted (not full-saturation) so even at high opacity the beam reads as a soft tether.
-        // The colorblind palette replaces green with blue (the green/red pair is the common
-        // red-green confusion); blue / yellow / red are well separated for deuteran & protan vision.
-        private static Color ZoneColor(BeamZone zone, bool colorblind)
-        {
-            if (colorblind)
-            {
-                switch (zone)
-                {
-                    case BeamZone.Danger: return new Color(0.84f, 0.15f, 0.20f); // red
-                    case BeamZone.Warn: return new Color(0.95f, 0.85f, 0.15f);   // yellow
-                    default: return new Color(0.15f, 0.50f, 0.85f);             // blue (safe)
-                }
-            }
-            switch (zone)
-            {
-                case BeamZone.Danger: return new Color(0.85f, 0.20f, 0.16f);
-                case BeamZone.Warn: return new Color(0.85f, 0.70f, 0.15f);
-                default: return new Color(0.25f, 0.75f, 0.30f);
-            }
-        }
     }
 }

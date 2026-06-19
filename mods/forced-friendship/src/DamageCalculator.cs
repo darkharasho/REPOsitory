@@ -172,7 +172,10 @@ namespace ForcedFriendship
                 {
                     if (j == i) continue;
                     PlayerState other = players[j];
-                    if (!other.Alive) continue;
+                    // Skip dead players and players parked in the truck — they can't anchor you.
+                    // So if everyone else has gone to the truck, the lone explorer has no anchor
+                    // and takes no damage.
+                    if (!other.Alive || other.InTruck) continue;
 
                     float d = Distance(self, other, includeHeight);
                     if (d < nearest) { nearest = d; nearestIdx = j; }

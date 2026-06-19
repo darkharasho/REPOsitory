@@ -17,6 +17,7 @@ namespace ForcedFriendship
         internal static ConfigEntry<int> DamagePerBand = null!;
         internal static ConfigEntry<int> TickInterval = null!;
         internal static ConfigEntry<bool> IncludeHeight = null!;
+        internal static ConfigEntry<int> GracePeriod = null!;
         internal static ConfigEntry<AnchorMode> Mode = null!;
         internal static ConfigEntry<bool> BeamsEnabled = null!;
         internal static ConfigEntry<bool> BeamsShowAll = null!;
@@ -25,6 +26,7 @@ namespace ForcedFriendship
         internal static ConfigEntry<int> BeamsWidth = null!;
         internal static ConfigEntry<int> BeamsOpacity = null!;
         internal static ConfigEntry<bool> BeamsColorblind = null!;
+        internal static ConfigEntry<bool> StatusIndicator = null!;
 
         // Active rule values — the gameplay rule comes from the HOST so every client's beams
         // match the host-authoritative damage. They start from local config and are overwritten
@@ -38,6 +40,7 @@ namespace ForcedFriendship
         internal static int ActiveDamagePerBand;
         internal static int ActiveTickInterval;
         internal static bool ActiveIncludeHeight;
+        internal static int ActiveGracePeriod;
 
         /// <summary>Beam thickness in world units (the int Width knob is a 1/100 scale).</summary>
         internal static float BeamWidthWorld => BeamsWidth.Value * 0.01f;
@@ -71,6 +74,10 @@ namespace ForcedFriendship
             IncludeHeight = Config.Bind("General", "IncludeHeight", false,
                 "If true, vertical distance counts toward the safe radius. Default false so being " +
                 "on a different floor of the same tall room doesn't trigger damage.");
+            GracePeriod = Config.Bind("General", "GracePeriod", 30,
+                new ConfigDescription(
+                    "Seconds of safety after leaving the truck before damage can start. 0 disables.",
+                    new AcceptableValueRange<int>(0, 60)));
 
             Mode = Config.Bind("General", "AnchorMode", AnchorMode.Buddy,
                 "Buddy = stay near the nearest living player (default). " +
@@ -99,12 +106,16 @@ namespace ForcedFriendship
             BeamsColorblind = Config.Bind("Beams", "Colorblind", false,
                 "Use a colorblind-friendly palette (blue safe / yellow warn / red danger) instead " +
                 "of green/yellow/red. Local to you — not synced from the host.");
+            StatusIndicator = Config.Bind("Beams", "StatusIndicator", false,
+                "Show a subtle on-screen box tinted by your current safety color (green/yellow/red), " +
+                "near the health/stamina HUD, so you always know your status. Local to you.");
 
             ResetToLocalConfig();
 
             var harmony = new Harmony("darkharasho.ForcedFriendship");
             harmony.PatchAll();
             Log.LogInfo($"ForcedFriendship v{PluginInfo.PLUGIN_VERSION} loaded.");
+            gameObject.AddComponent<StatusHud>();   // before the driver so grace updates first
             gameObject.AddComponent<ForcedFriendshipDriver>();
             gameObject.AddComponent<BeamRenderer>();
             gameObject.AddComponent<SettingsSyncer>();
@@ -120,6 +131,7 @@ namespace ForcedFriendship
             ActiveDamagePerBand = DamagePerBand.Value;
             ActiveTickInterval  = TickInterval.Value;
             ActiveIncludeHeight = IncludeHeight.Value;
+            ActiveGracePeriod   = GracePeriod.Value;
         }
 
         /// <summary>

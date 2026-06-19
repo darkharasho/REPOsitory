@@ -19,6 +19,12 @@
   `WarnPercent` is now a 0–100 percent.
 - New `IncludeHeight` setting (default false): vertical distance is ignored by default, so being
   on a different floor of the same tall room no longer triggers damage.
+- Players parked in the truck no longer act as buddy anchors, so the lone explorer left out
+  isn't punished when everyone else has gone safe.
+- New `GracePeriod` (default 30s, max 60s): leaving the truck grants a damage-free grace window
+  with an on-screen countdown.
+- New `Beams/StatusIndicator` (local, default false): a subtle on-screen box tinted by your
+  current safety color, near the health/stamina HUD.
 
 ## 0.2.0
 - New `AnchorMode` setting: `Buddy` (stay near the nearest living player, the original

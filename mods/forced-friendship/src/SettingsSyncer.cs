@@ -22,6 +22,7 @@ namespace ForcedFriendship
         private const string K_DMG     = "FF_DMG";
         private const string K_TICK    = "FF_TICK";
         private const string K_HEIGHT  = "FF_HGT";
+        private const string K_GRACE   = "FF_GRC";
 
         // Static singleton — FindObjectOfType doesn't reliably find us on the BepInEx plugin
         // GameObject (it lives outside the normal scene hierarchy).
@@ -82,6 +83,7 @@ namespace ForcedFriendship
             if (props.ContainsKey(K_DMG))     { var v = (int)props[K_DMG];                 if (Plugin.ActiveDamagePerBand != v) { Plugin.ActiveDamagePerBand = v; changed = true; } }
             if (props.ContainsKey(K_TICK))    { var v = (int)props[K_TICK];                if (Plugin.ActiveTickInterval  != v) { Plugin.ActiveTickInterval  = v; changed = true; } }
             if (props.ContainsKey(K_HEIGHT))  { var v = (bool)props[K_HEIGHT];             if (Plugin.ActiveIncludeHeight != v) { Plugin.ActiveIncludeHeight = v; changed = true; } }
+            if (props.ContainsKey(K_GRACE))   { var v = (int)props[K_GRACE];               if (Plugin.ActiveGracePeriod   != v) { Plugin.ActiveGracePeriod   = v; changed = true; } }
             if (changed)
                 Plugin.Log.LogInfo($"[Sync] Pulled host rule — enabled={Plugin.ActiveEnabled} mode={Plugin.ActiveMode} safe={Plugin.ActiveSafeDistance} band={Plugin.ActiveBandWidth} dmg={Plugin.ActiveDamagePerBand} tick={Plugin.ActiveTickInterval}");
         }
@@ -93,6 +95,7 @@ namespace ForcedFriendship
         private int _lastSafe = int.MinValue, _lastBand = int.MinValue, _lastTick = int.MinValue;
         private int _lastDmg = int.MinValue;
         private bool? _lastHeight;
+        private int _lastGrace = int.MinValue;
 
         private void PushHostSettings()
         {
@@ -102,24 +105,26 @@ namespace ForcedFriendship
             int safe = Plugin.SafeDistance.Value, band = Plugin.BandWidth.Value, tick = Plugin.TickInterval.Value;
             int dmg = Plugin.DamagePerBand.Value;
             bool height = Plugin.IncludeHeight.Value;
+            int grace = Plugin.GracePeriod.Value;
 
             if (en == _lastEnabled && mode == _lastMode && safe == _lastSafe &&
-                band == _lastBand && dmg == _lastDmg && tick == _lastTick && height == _lastHeight)
+                band == _lastBand && dmg == _lastDmg && tick == _lastTick &&
+                height == _lastHeight && grace == _lastGrace)
             {
                 Plugin.ResetToLocalConfig(); // refresh Active mirrors, skip the broadcast
                 return;
             }
             _lastEnabled = en; _lastMode = mode; _lastSafe = safe;
-            _lastBand = band; _lastDmg = dmg; _lastTick = tick; _lastHeight = height;
+            _lastBand = band; _lastDmg = dmg; _lastTick = tick; _lastHeight = height; _lastGrace = grace;
 
             var props = new ExitGames.Client.Photon.Hashtable
             {
                 [K_ENABLED] = en, [K_MODE] = mode, [K_SAFE] = safe,
-                [K_BAND] = band, [K_DMG] = dmg, [K_TICK] = tick, [K_HEIGHT] = height,
+                [K_BAND] = band, [K_DMG] = dmg, [K_TICK] = tick, [K_HEIGHT] = height, [K_GRACE] = grace,
             };
             PhotonNetwork.CurrentRoom.SetCustomProperties(props);
             Plugin.ResetToLocalConfig();
-            Plugin.Log.LogInfo($"[Sync] Host pushed rule — enabled={en} mode={(AnchorMode)mode} safe={safe} band={band} dmg={dmg} tick={tick} height={height}");
+            Plugin.Log.LogInfo($"[Sync] Host pushed rule — enabled={en} mode={(AnchorMode)mode} safe={safe} band={band} dmg={dmg} tick={tick} height={height} grace={grace}");
         }
     }
 }

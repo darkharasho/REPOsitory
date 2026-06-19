@@ -290,6 +290,19 @@ public class DamageCalculatorTests
     }
 
     [Fact]
+    public void ResolveAnchors_buddy_ignores_in_truck_players_as_anchors()
+    {
+        // Explorer far out; their only other living buddy is parked in the truck.
+        var players = new[]
+        {
+            new PlayerState(0f, 0f, 0f, alive: true),                  // explorer
+            new PlayerState(100f, 0f, 0f, alive: true, inTruck: true), // buddy in the truck
+        };
+        var anchors = DamageCalculator.ResolveAnchors(players, AnchorMode.Buddy, NoCarts);
+        Assert.False(anchors[0].HasAnchor); // no eligible buddy -> no anchor -> no damage
+    }
+
+    [Fact]
     public void EvaluateDamage_in_truck_player_takes_no_damage_even_when_far()
     {
         var anchors = new[]
