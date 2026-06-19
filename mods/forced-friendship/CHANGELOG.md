@@ -11,6 +11,8 @@
   safety. Set it false to hide the beam while safe so split groups show no lines.
 - Beams restyled thinner and translucent (soft, grab-beam-like) instead of a neon glow; new
   `Beams/Width` and `Beams/Opacity` knobs.
+- New `Beams/Colorblind` (local, default false): swaps green for blue (blue/yellow/red) for a
+  colorblind-friendlier palette.
 - Config changes (incl. swapping AnchorMode) now update the host's beams the same frame instead
   of lagging behind.
 - All numeric settings are now whole integers with sane maximums; `SafeDistance` default is 20,

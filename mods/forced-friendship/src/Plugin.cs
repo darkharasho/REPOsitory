@@ -24,6 +24,7 @@ namespace ForcedFriendship
         internal static ConfigEntry<int> BeamsWarnPercent = null!;
         internal static ConfigEntry<int> BeamsWidth = null!;
         internal static ConfigEntry<int> BeamsOpacity = null!;
+        internal static ConfigEntry<bool> BeamsColorblind = null!;
 
         // Active rule values — the gameplay rule comes from the HOST so every client's beams
         // match the host-authoritative damage. They start from local config and are overwritten
@@ -95,6 +96,9 @@ namespace ForcedFriendship
                 new ConfigDescription(
                     "Beam opacity percent (1 = faint, 100 = solid). Lower is more translucent.",
                     new AcceptableValueRange<int>(1, 100)));
+            BeamsColorblind = Config.Bind("Beams", "Colorblind", false,
+                "Use a colorblind-friendly palette (blue safe / yellow warn / red danger) instead " +
+                "of green/yellow/red. Local to you — not synced from the host.");
 
             ResetToLocalConfig();
 
