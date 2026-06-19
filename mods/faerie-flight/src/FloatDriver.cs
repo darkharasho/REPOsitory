@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using HarmonyLib;
 using UnityEngine;
 
-namespace ForceFloat
+namespace FaerieFlight
 {
     /// <summary>
     /// Keeps every player permanently floating during levels by spawning the game's OWN Zero

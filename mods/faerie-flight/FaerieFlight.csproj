@@ -2,14 +2,14 @@
 
   <PropertyGroup>
     <TargetFramework>netstandard2.1</TargetFramework>
-    <AssemblyName>ForceFloat</AssemblyName>
-    <RootNamespace>ForceFloat</RootNamespace>
+    <AssemblyName>FaerieFlight</AssemblyName>
+    <RootNamespace>FaerieFlight</RootNamespace>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <ManifestJson>$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)/manifest.json'))</ManifestJson>
     <Version>$([System.Text.RegularExpressions.Regex]::Match($(ManifestJson), '"version_number"\s*:\s*"([^"]+)"').Groups[1].Value)</Version>
-    <BepInExPluginGuid>darkharasho.ForceFloat</BepInExPluginGuid>
-    <BepInExPluginName>ForceFloat</BepInExPluginName>
+    <BepInExPluginGuid>darkharasho.FaerieFlight</BepInExPluginGuid>
+    <BepInExPluginName>FaerieFlight</BepInExPluginName>
     <BepInExPluginVersion>$(Version)</BepInExPluginVersion>
   </PropertyGroup>
 

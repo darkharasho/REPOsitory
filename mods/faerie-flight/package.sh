@@ -2,10 +2,10 @@
 set -euo pipefail
 
 VERSION="$(python3 -c "import json; print(json.load(open('manifest.json'))['version_number'])")"
-DLL="bin/Release/netstandard2.1/ForceFloat.dll"
+DLL="bin/Release/netstandard2.1/FaerieFlight.dll"
 BUILDS_DIR="$(cd "$(dirname "$0")/../.." && pwd)/builds"
 mkdir -p "$BUILDS_DIR"
-OUT="$BUILDS_DIR/ForceFloat-${VERSION}.zip"
+OUT="$BUILDS_DIR/FaerieFlight-${VERSION}.zip"
 
 if [ -z "${GAME_DIR:-}" ]; then
     for candidate in \
@@ -27,7 +27,7 @@ fi
 
 echo "Using game dir: $GAME_DIR"
 
-dotnet build ForceFloat.csproj --configuration Release /p:GameDir="$GAME_DIR"
+dotnet build FaerieFlight.csproj --configuration Release /p:GameDir="$GAME_DIR"
 
 if [ ! -f "icon.png" ]; then
     echo "ERROR: icon.png not found — Thunderstore zip requires an icon."

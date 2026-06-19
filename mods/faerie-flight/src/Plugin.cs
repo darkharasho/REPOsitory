@@ -3,7 +3,7 @@ using BepInEx.Configuration;
 using BepInEx.Logging;
 using HarmonyLib;
 
-namespace ForceFloat
+namespace FaerieFlight
 {
     [BepInPlugin(PluginInfo.PLUGIN_GUID, PluginInfo.PLUGIN_NAME, PluginInfo.PLUGIN_VERSION)]
     public class Plugin : BaseUnityPlugin
@@ -26,7 +26,7 @@ namespace ForceFloat
 
             new Harmony(PluginInfo.PLUGIN_GUID).PatchAll();
             gameObject.AddComponent<FloatDriver>();
-            Log.LogInfo($"ForceFloat v{PluginInfo.PLUGIN_VERSION} loaded.");
+            Log.LogInfo($"FaerieFlight v{PluginInfo.PLUGIN_VERSION} loaded.");
         }
     }
 }

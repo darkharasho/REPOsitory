@@ -1,11 +1,11 @@
 using UnityEngine;
 using HarmonyLib;
 
-namespace ForceFloat
+namespace FaerieFlight
 {
     /// <summary>
     /// Keeps the flashlight on while floating. The game's <c>FlashlightController.Update</c> forces
-    /// the light off whenever the local player is tumbling / crouching / sliding. Since ForceFloat
+    /// the light off whenever the local player is tumbling / crouching / sliding. Since FaerieFlight
     /// keeps players permanently tumbling, we briefly mask those three flags to false for the
     /// duration of that one Update call (then restore them in the postfix), so the flashlight
     /// behaves as if upright. Nothing else observes the change — set and reverted within the same
@@ -30,7 +30,7 @@ namespace ForceFloat
         private static float _logAccum;
 
         [HarmonyPrefix]
-        private static void Prefix(FlashlightController __instance, ref ForceFloat.FlashState __state)
+        private static void Prefix(FlashlightController __instance, ref FaerieFlight.FlashState __state)
         {
             __state = default;
             try
@@ -56,7 +56,7 @@ namespace ForceFloat
         }
 
         [HarmonyPostfix]
-        private static void Postfix(FlashlightController __instance, ForceFloat.FlashState __state)
+        private static void Postfix(FlashlightController __instance, FaerieFlight.FlashState __state)
         {
             if (!__state.masked) return;
             try
