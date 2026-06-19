@@ -5,10 +5,10 @@
   `DamagePerBand`, `TickInterval`) is taken from the host and synced to all clients, so beams
   match the host-authoritative damage. Beam display prefs stay local.
 - Truck safe zone: a player standing in the extraction truck takes no damage regardless of
-  distance (and counts as safe — green beam in Cart mode, hidden in Buddy mode).
+  distance (and counts as safe — the beam stays green).
 - Cart mode now anchors each player to the **nearest** cart, supporting multiple medium carts.
-- Buddy mode hides the beam when you're safe — split groups that are each fine show no lines;
-  the tether only appears in the warn/danger zone.
+- New `Beams/AlwaysShow` (default true): the tether is always drawn and its color conveys
+  safety. Set it false to hide the beam while safe so split groups show no lines.
 - Beams restyled thinner and translucent (soft, grab-beam-like) instead of a neon glow; new
   `Beams/Width` and `Beams/Opacity` knobs.
 - Config changes (incl. swapping AnchorMode) now update the host's beams the same frame instead

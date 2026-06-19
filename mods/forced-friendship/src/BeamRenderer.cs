@@ -80,6 +80,7 @@ namespace ForcedFriendship
 
             PlayerAvatar? local = PlayerAvatar.instance;
             bool showAll = Plugin.BeamsShowAll.Value;
+            bool alwaysShow = Plugin.BeamsAlwaysShow.Value;
             float safe = Plugin.ActiveSafeDistance;
             float warn = Plugin.WarnFraction;
             float width = Plugin.BeamWidthWorld;
@@ -90,7 +91,7 @@ namespace ForcedFriendship
                 PlayerAvatar pa = _avatars[i];
                 AnchorResult a = anchors[i];
                 BeamZone zone = DamageCalculator.ZoneForAnchor(a, safe, warn);
-                bool render = DamageCalculator.ShouldDrawBeam(mode, zone, a.HasAnchor)
+                bool render = DamageCalculator.ShouldDrawBeam(zone, a.HasAnchor, alwaysShow)
                     && (showAll || pa == local);
                 if (!render) { HideLine(pa); continue; }
 

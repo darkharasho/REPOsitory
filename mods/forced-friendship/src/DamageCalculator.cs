@@ -230,13 +230,13 @@ namespace ForcedFriendship
             => a.Safe ? BeamZone.Safe : Classify(a.Distance, safeDistance, warnPercent);
 
         /// <summary>
-        /// Whether a tether beam should be drawn at all. Requires an anchor. In Buddy mode a
-        /// Safe (green) beam is hidden — split groups that are each internally fine show no
-        /// lines; the tether only appears once someone is in the warn/danger zone. In Cart mode
-        /// the tether to the cart is always shown as a guide.
+        /// Whether a tether beam should be drawn. Requires an anchor. When
+        /// <paramref name="alwaysShow"/> is true the tether is always drawn (color conveys
+        /// safety); when false a Safe (green) beam is hidden so the line only appears once you're
+        /// in the warn/danger zone — split safe groups then show no lines.
         /// </summary>
-        public static bool ShouldDrawBeam(AnchorMode mode, BeamZone zone, bool hasAnchor)
-            => hasAnchor && (mode == AnchorMode.Cart || zone != BeamZone.Safe);
+        public static bool ShouldDrawBeam(BeamZone zone, bool hasAnchor, bool alwaysShow)
+            => hasAnchor && (alwaysShow || zone != BeamZone.Safe);
 
         /// <summary>
         /// Buddy-mode convenience: each living player is damaged by the band of the distance

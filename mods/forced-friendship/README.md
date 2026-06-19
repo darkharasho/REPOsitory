@@ -17,6 +17,7 @@ Config file: `BepInEx/config/darkharasho.ForcedFriendship.cfg`. All numeric sett
 | `IncludeHeight` | General | `false` | If true, vertical distance counts; default false so different floors of one tall room stay safe |
 | `Enabled` | Beams | `true` | Draw a tether beam from each player to their anchor |
 | `ShowAllPlayers` | Beams | `true` | Show every player's beam; if false, only your own |
+| `AlwaysShow` | Beams | `true` | Always draw the tether; if false, the beam hides while safe and only appears in the warn/danger zone |
 | `WarnPercent` | Beams | `25` | Outer % of `SafeDistance` where the beam turns yellow before red (0–100; 0 disables yellow) |
 | `Width` | Beams | `2` | Tether thickness (1–20; 1 = thinnest, approximates the grab beam) |
 | `Opacity` | Beams | `40` | Beam opacity % (1–100; lower is more translucent) |
@@ -25,11 +26,11 @@ The **gameplay rule** (`Enabled`, `AnchorMode`, `SafeDistance`, `BandWidth`, `Da
 `TickInterval`) is taken from the **host** and synced to everyone, so each client's beams match
 the host-authoritative damage. **Beam display** prefs (`Beams/*`) are local to each client.
 
-In `Buddy` mode a beam only appears once you're in the warn/danger zone — split into safe
-subgroups (2-and-2) and the lines vanish. In `Cart` mode the tether to your nearest cart is
-always shown (green when safe). Standing in the **extraction truck** is a safe zone: no damage,
-and you count as safe — so your beam stays green in `Cart` mode and is hidden in `Buddy` mode.
-The mod is active during level gameplay only (not the shop or lobby), and dead players are never damaged.
+A tether is always drawn to your anchor — your nearest buddy in `Buddy` mode, your nearest cart
+in `Cart` mode — and its color tells you how safe you are (green safe, yellow approaching the
+edge, red taking damage). Standing in the **extraction truck** is a safe zone: no damage, and
+the beam stays green. The mod is active during level gameplay only (not the shop or lobby), and
+dead players are never damaged.
 
 ## Dependencies
 

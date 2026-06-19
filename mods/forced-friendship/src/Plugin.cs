@@ -20,6 +20,7 @@ namespace ForcedFriendship
         internal static ConfigEntry<AnchorMode> Mode = null!;
         internal static ConfigEntry<bool> BeamsEnabled = null!;
         internal static ConfigEntry<bool> BeamsShowAll = null!;
+        internal static ConfigEntry<bool> BeamsAlwaysShow = null!;
         internal static ConfigEntry<int> BeamsWarnPercent = null!;
         internal static ConfigEntry<int> BeamsWidth = null!;
         internal static ConfigEntry<int> BeamsOpacity = null!;
@@ -78,6 +79,9 @@ namespace ForcedFriendship
                 "Draw a tether beam from each player to their anchor.");
             BeamsShowAll = Config.Bind("Beams", "ShowAllPlayers", true,
                 "Show beams for every living player. If false, only your own beam is drawn.");
+            BeamsAlwaysShow = Config.Bind("Beams", "AlwaysShow", true,
+                "Always draw the tether (color conveys safety). If false, the beam hides while " +
+                "you're safe and only appears in the warn/danger zone.");
             BeamsWarnPercent = Config.Bind("Beams", "WarnPercent", 25,
                 new ConfigDescription(
                     "Percent of SafeDistance, at the outer edge, where the beam turns yellow " +

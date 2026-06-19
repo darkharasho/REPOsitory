@@ -316,22 +316,21 @@ public class DamageCalculatorTests
         Assert.Equal(BeamZone.Danger, DamageCalculator.ZoneForAnchor(danger, safeDistance: 15f, warnPercent: 0.25f));
     }
 
-    // --- Beam visibility: Buddy hides safe beams, Cart always shows ---
+    // --- Beam visibility: AlwaysShow toggles hide-when-safe ---
 
     [Theory]
-    [InlineData(AnchorMode.Buddy, BeamZone.Safe, false)] // 2-and-2 both safe -> no line
-    [InlineData(AnchorMode.Buddy, BeamZone.Warn, true)]
-    [InlineData(AnchorMode.Buddy, BeamZone.Danger, true)]
-    [InlineData(AnchorMode.Cart, BeamZone.Safe, true)]   // cart tether always shown
-    [InlineData(AnchorMode.Cart, BeamZone.Danger, true)]
-    public void ShouldDrawBeam_buddy_hides_safe_cart_always_shows(AnchorMode mode, BeamZone zone, bool expected)
+    [InlineData(BeamZone.Safe, true, true)]    // always show -> safe beam drawn
+    [InlineData(BeamZone.Safe, false, false)]  // hide-when-safe -> safe beam hidden
+    [InlineData(BeamZone.Warn, false, true)]   // hide-when-safe still shows warn
+    [InlineData(BeamZone.Danger, false, true)] // ...and danger
+    public void ShouldDrawBeam_respects_alwaysShow(BeamZone zone, bool alwaysShow, bool expected)
     {
-        Assert.Equal(expected, DamageCalculator.ShouldDrawBeam(mode, zone, hasAnchor: true));
+        Assert.Equal(expected, DamageCalculator.ShouldDrawBeam(zone, hasAnchor: true, alwaysShow));
     }
 
     [Fact]
     public void ShouldDrawBeam_no_anchor_never_draws()
     {
-        Assert.False(DamageCalculator.ShouldDrawBeam(AnchorMode.Cart, BeamZone.Danger, hasAnchor: false));
+        Assert.False(DamageCalculator.ShouldDrawBeam(BeamZone.Danger, hasAnchor: false, alwaysShow: true));
     }
 }
