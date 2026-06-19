@@ -193,10 +193,33 @@ namespace MiniEepo
             }
 
             // Held-gun height is handled by HeldGunStabilizationPatch above (our SolidAim port),
-            // registered only when SolidAim is absent. We no longer add a separate puller "lift" —
-            // it over-corrected and held guns too high. Setting the gun's aimVerticalOffset plus a
-            // strong grab (exactly as SolidAim does) keeps the gun at eye level without any
-            // positional lift, so there's nothing version-gated to register here.
+            // registered only when SolidAim is absent, plus GunGrabVerticalRestorePatch which restores
+            // the proportional grab drop ScalerCore's GrabVerticalPositionScalePatch zeroes out.
+            //
+            // ScalerCore 0.6.1 added a SECOND vertical patch — ForceGrabPointVerticalScalePatch — that
+            // those two don't account for. It postfixes PhysGrabber and shoves the grab puller/plane UP
+            // by cameraUp * 0.3*(1-Factor) (≈ +0.18m at 0.4 scale) for any scaled player holding an item
+            // with an active forceGrabPoint. Guns activate a forceGrabPoint, so held guns ride ~0.18m up
+            // — on a ~0.28m-tall body that's head/overhead height (the "guns still way higher up" bug
+            // that resurfaced when ScalerCore upgraded from 0.5.x, which had no such patch). Block that
+            // raise for guns and melee weapons (same Prefix-returns-false pattern as BonkBlocker) —
+            // mini-eepo positions those itself; valuable forcegrab items keep ScalerCore's lift untouched.
+            System.Type? forceGrabPatch = null;
+            foreach (var asm in System.AppDomain.CurrentDomain.GetAssemblies())
+            {
+                if (asm.GetName().Name != "ScalerCore") continue;
+                foreach (var t in asm.GetTypes())
+                    if (t.Name == "ForceGrabPointVerticalScalePatch") { forceGrabPatch = t; break; }
+                break;
+            }
+            var forceGrabPostfix = forceGrabPatch != null ? AccessTools.Method(forceGrabPatch, "Postfix") : null;
+            if (forceGrabPostfix != null)
+            {
+                harmony.Patch(forceGrabPostfix, prefix: new HarmonyMethod(typeof(ForceGrabPointWeaponBlocker), nameof(ForceGrabPointWeaponBlocker.Prefix)));
+                Log.LogInfo("[GunHeight] Neutralized ScalerCore's ForceGrabPointVerticalScalePatch for held guns/melee (stops weapons riding up to head height)");
+            }
+            else
+                Log.LogWarning("[GunHeight] ScalerCore ForceGrabPointVerticalScalePatch.Postfix not found — held weapons may ride up (older/newer ScalerCore?)");
 
             // Cart push recoil. The game's PhysGrabCart.CartSteer parks the cart a fixed 2–2.5m
             // (3–4 sprinting) in front of the grabber. ScalerCore's CartSteer transpiler routes that
@@ -649,6 +672,34 @@ namespace MiniEepo
         public static bool Prefix() => false;
     }
 
+    // Applied as a Prefix on ScalerCore 0.6.1's ForceGrabPointVerticalScalePatch.Postfix. That postfix
+    // raises the grab puller/plane by cameraUp * 0.3*(1-Factor) whenever a scaled player holds an item
+    // with an active forceGrabPoint — that lift (≈ +0.18m at 0.4 scale) stacks on top of the hold
+    // mini-eepo already produces and parks the weapon near the player's head. Returning false skips
+    // ScalerCore's raise, but ONLY for guns and melee weapons — the two forcegrab items mini-eepo
+    // repositions itself (guns via HeldGunStabilizationPatch, both via WeaponGrabVerticalRestorePatch
+    // restoring the game's -0.2 drop). Valuable forcegrab items (e.g. the crystal ball) aren't
+    // repositioned by us, so we let ScalerCore's lift run for them. The parameter name must match the
+    // formal parameter on ScalerCore's Postfix (PhysGrabObject ___grabbedPhysGrabObject) so Harmony
+    // binds it. Cache the weapon lookup per PGO — this fires per grabbing player per frame.
+    internal static class ForceGrabPointWeaponBlocker
+    {
+        private static readonly Dictionary<int, bool> _isWeapon = new Dictionary<int, bool>();
+
+        public static bool Prefix(PhysGrabObject ___grabbedPhysGrabObject)
+        {
+            if (___grabbedPhysGrabObject == null) return true;
+            int id = ___grabbedPhysGrabObject.GetInstanceID();
+            if (!_isWeapon.TryGetValue(id, out var isWeapon))
+            {
+                isWeapon = ___grabbedPhysGrabObject.GetComponent<ItemGun>() != null
+                        || ___grabbedPhysGrabObject.GetComponent<ItemMelee>() != null;
+                _isWeapon[id] = isWeapon;
+            }
+            return !isWeapon; // false = skip ScalerCore's upward raise for held guns/melee
+        }
+    }
+
     internal static class VoicePitchPatch
     {
         public static bool Prefix() => Plugin.ActiveVoiceMod;
@@ -800,24 +851,26 @@ namespace MiniEepo
         }
     }
 
-    // This is the actual held-gun HEIGHT fix. REPO holds a gun's grab point a bit below eye level
+    // This is the actual held-WEAPON HEIGHT fix. REPO holds a weapon's grab point a bit below eye level
     // each frame: ItemGun.UpdateMaster calls PhysGrabObject.OverrideGrabVerticalPosition(grabVerticalOffset)
-    // with grabVerticalOffset = -0.2, and the engine applies `pullerPos += cameraUp * thatValue`.
-    // ScalerCore's GrabVerticalPositionScalePatch PREFIXES the same method and forces the value to 0
-    // for ANY scaled player — so a shrunk player loses that -0.2 drop and the gun rides ~0.2m up,
-    // which on a 0.4-scale body (~0.28m tall) puts it up near the head. (aimVerticalOffset above is
-    // only aim pitch, not height — it can't fix this.)
+    // (grabVerticalOffset = -0.2), and ItemMelee.GrabVerticalPositionOverride does the same with a
+    // hardcoded -0.2; the engine then applies `pullerPos += cameraUp * thatValue`. ScalerCore's
+    // GrabVerticalPositionScalePatch PREFIXES the same method and forces the value to 0 for ANY scaled
+    // player — so a shrunk player loses that -0.2 drop and the weapon rides ~0.2m up, which on a
+    // 0.4-scale body (~0.28m tall) puts it up near the head. (aimVerticalOffset above is only aim pitch,
+    // not height — it can't fix this.)
     //
-    // We postfix the same method (runs after ScalerCore's prefix) and, for a gun held by a shrunk
-    // player, restore a PROPORTIONAL drop: grabVerticalOffset * factor (-0.2 * 0.4 = -0.08). That's
-    // the full-size -0.2 scaled to the tiny body, so the gun hangs at hand height again instead of
-    // eye/overhead. Non-guns and full-size holders are left exactly as ScalerCore set them.
+    // We postfix the same method (runs after ScalerCore's prefix) and, for a weapon held by a shrunk
+    // player, restore a PROPORTIONAL drop: offset * factor (-0.2 * 0.4 = -0.08). That's the full-size
+    // -0.2 scaled to the tiny body, so the weapon hangs at hand height again instead of eye/overhead.
+    // Non-weapons and full-size holders are left exactly as ScalerCore set them.
     [HarmonyPatch(typeof(PhysGrabObject), "OverrideGrabVerticalPosition")]
-    internal static class GunGrabVerticalRestorePatch
+    internal static class WeaponGrabVerticalRestorePatch
     {
-        // Cache ItemGun per PGO (null = not a gun). OverrideGrabVerticalPosition is also called for
-        // enemies/other items every frame, so reject non-guns cheaply before any list scan.
-        private static readonly Dictionary<int, ItemGun?> _gun = new Dictionary<int, ItemGun?>();
+        // Cache the per-PGO drop offset (NaN = not a weapon we manage). OverrideGrabVerticalPosition is
+        // also called for enemies/other items every frame, so reject non-weapons cheaply before any
+        // list scan. Guns expose grabVerticalOffset as a field (default -0.2); ItemMelee hardcodes -0.2.
+        private static readonly Dictionary<int, float> _offset = new Dictionary<int, float>();
         private static readonly AccessTools.FieldRef<PhysGrabObject, float> _posRef =
             AccessTools.FieldRefAccess<PhysGrabObject, float>("overrideGrabRelativeVerticalPosition");
         private static readonly AccessTools.FieldRef<PhysGrabObject, float> _timerRef =
@@ -826,12 +879,14 @@ namespace MiniEepo
         private static void Postfix(PhysGrabObject __instance)
         {
             int id = __instance.GetInstanceID();
-            if (!_gun.TryGetValue(id, out var gun))
+            if (!_offset.TryGetValue(id, out var offset))
             {
-                gun = __instance.GetComponent<ItemGun>();
-                _gun[id] = gun;
+                var gun = __instance.GetComponent<ItemGun>();
+                if (gun != null) offset = gun.grabVerticalOffset;
+                else offset = __instance.GetComponent<ItemMelee>() != null ? -0.2f : float.NaN;
+                _offset[id] = offset;
             }
-            if (gun == null || __instance.playerGrabbing == null) return;
+            if (float.IsNaN(offset) || __instance.playerGrabbing == null) return;
 
             float factor = 1f;
             foreach (var pg in __instance.playerGrabbing)
@@ -841,7 +896,7 @@ namespace MiniEepo
             }
             if (factor >= 0.99f) return; // holder not shrunk — keep ScalerCore's value
 
-            _posRef(__instance) = gun.grabVerticalOffset * factor;
+            _posRef(__instance) = offset * factor;
             _timerRef(__instance) = 0.1f;
         }
     }

@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.3.7
+- Fix: held guns **and melee weapons** ride up to head height on ScalerCore 0.6.1. ScalerCore 0.6.1 added a second vertical patch — `ForceGrabPointVerticalScalePatch` — that shoves the grab puller up by `cameraUp * 0.3*(1-scale)` (≈ +0.18m at 0.4 scale) for any scaled player holding a force-grab-point item; both guns (`ItemGun`) and melee (`ItemMelee`) have one, so the lift stacks on top of the weapon's hold and parks it near the head. The 1.3.4/1.3.5 hold rework is self-contained (aim offset + restored grab drop) and doesn't want that lift, but nothing cancelled it. Now skip ScalerCore's raise for held guns and melee, and restore the game's proportional `-0.2 * scale` grab drop for both (previously gun-only). Valuable force-grab items (e.g. crystal ball) keep ScalerCore's lift. Earlier fixes were built against ScalerCore 0.5.x, which had no such patch.
+
 ## 1.3.6
 - Fix: shrunk players can pistol-whip and melee-bonk others over again. The game's knockdown gate needs a held weapon's impact velocity ≥ 6, but a tiny player swings on a smaller radius so it never gets there. Scale the weapon's tracked impact velocity back up by ~1/scale (capped) for shrunk holders — applies to guns and melee/equippable weapons, and only affects the knock-or-not decision, not damage or break force. Carried valuables/props keep vanilla behaviour.
 
