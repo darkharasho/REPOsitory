@@ -89,10 +89,9 @@ namespace ForceFloat
 
         private void FixedUpdate()
         {
-            if (!Plugin.EnableDrift.Value || !ShouldFloat()) return;
-
             try
             {
+                if (!Plugin.EnableDrift.Value || !ShouldFloat()) return;
                 var avatar = PlayerAvatar.instance;
                 if (avatar == null || avatar.localCamera == null) return;
 
@@ -136,8 +135,7 @@ namespace ForceFloat
                 var tumble = AvatarTumbleRef(avatar);
                 if (tumble != null && AvatarIsTumblingRef(avatar))
                     tumble.TumbleRequest(false, false);
-                if (Plugin.Wings.Value)
-                    avatar.UpgradeTumbleWingsVisualsActive(false);
+                avatar.UpgradeTumbleWingsVisualsActive(false);
             }
             catch (System.Exception e)
             {
