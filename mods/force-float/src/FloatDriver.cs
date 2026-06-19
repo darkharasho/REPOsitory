@@ -31,6 +31,10 @@ namespace ForceFloat
             AccessTools.FieldRefAccess<PlayerAvatar, bool>("isTumbling");
         private static readonly AccessTools.FieldRef<PlayerTumble, PhysGrabObject> TumblePhysGrabObjectRef =
             AccessTools.FieldRefAccess<PlayerTumble, PhysGrabObject>("physGrabObject");
+        private static readonly AccessTools.FieldRef<SemiAffect, float> AffectTimerRef =
+            AccessTools.FieldRefAccess<SemiAffect, float>("timer");
+        private static readonly AccessTools.FieldRef<SemiAffect, float> AffectTimerTotalRef =
+            AccessTools.FieldRefAccess<SemiAffect, float>("timerTotal");
 
         private GameObject? _affectPrefab;
         private bool _searched;
@@ -71,12 +75,22 @@ namespace ForceFloat
                     bool tumbling = AvatarIsTumblingRef(pa);
                     bool affectAlive = _active.TryGetValue(pa, out var existing) && existing != null;
 
-                    // Happy path: already tumbling with a live effect -> never stack another (the
-                    // overlap is what launched players through the ceiling and dropped collision).
-                    if (tumbling && affectAlive) continue;
+                    if (affectAlive && existing != null)
+                    {
+                        if (tumbling)
+                        {
+                            // Healthy: keep the SAME effect alive by topping its timer back up, so it
+                            // never expires (no fall) and we never stack a second one (no launch).
+                            AffectTimerRef(existing) = AffectTimerTotalRef(existing);
+                            continue;
+                        }
+                        // Alive but not tumbling = it failed to engage; drop it and respawn below.
+                        Object.Destroy(existing.gameObject);
+                        _active.Remove(pa);
+                    }
 
-                    // Otherwise (re)try, throttled: covers expired effects AND clients whose body
-                    // wasn't network-ready on the first try (the case a cart-grab teleport "fixed").
+                    // (Re)try, throttled: covers a missing effect AND clients whose body wasn't
+                    // network-ready on the first try (the case a cart-grab teleport "fixed").
                     if (_nextTry.TryGetValue(pa, out float next) && now < next) continue;
                     _nextTry[pa] = now + RetryInterval;
 

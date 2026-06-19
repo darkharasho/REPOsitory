@@ -1,6 +1,7 @@
 using BepInEx;
 using BepInEx.Configuration;
 using BepInEx.Logging;
+using HarmonyLib;
 
 namespace ForceFloat
 {
@@ -10,17 +11,20 @@ namespace ForceFloat
         internal static ManualLogSource Log = null!;
 
         internal static ConfigEntry<bool> Enabled = null!;
+        internal static ConfigEntry<bool> Flashlight = null!;
 
         private void Awake()
         {
             Log = Logger;
 
-            // Only the host spawns the float effect (tumble physics is master-authoritative),
-            // so the HOST's Enabled value governs the whole lobby — clients float without the mod.
             Enabled = Config.Bind("General", "Enabled", true,
-                "Master on/off switch for permanent floating. Only the host's value matters: the " +
-                "host drives the float for every player.");
+                "Master on/off switch for permanent floating. Best set on the host; the host drives " +
+                "the float for every player. (All players should run the mod.)");
+            Flashlight = Config.Bind("General", "Flashlight", true,
+                "Keep your flashlight on while floating. The game normally turns it off during tumble; " +
+                "since it's a dark game, this keeps it lit.");
 
+            new Harmony(PluginInfo.PLUGIN_GUID).PatchAll();
             gameObject.AddComponent<FloatDriver>();
             Log.LogInfo($"ForceFloat v{PluginInfo.PLUGIN_VERSION} loaded.");
         }

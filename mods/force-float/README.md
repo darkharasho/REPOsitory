@@ -16,7 +16,8 @@ exactly like the item, but always on.
 
 | Setting | Default | What it does |
 |---------|---------|--------------|
-| `Enabled` | `true` | Master on/off switch. Only the **host's** value matters. |
+| `Enabled` | `true` | Master on/off switch. Best set on the **host**, who drives the float for everyone. |
+| `Flashlight` | `true` | Keep your flashlight on while floating (the game normally kills it during tumble). |
 
 ## Multiplayer
 
