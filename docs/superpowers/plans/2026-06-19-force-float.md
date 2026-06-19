@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- Target framework for the mod: `netstandard2.1`; tests: `net6.0`.
+- Target framework for the mod: `netstandard2.1`; tests: `net10.0` (only the .NET 10 SDK is installed on this machine; forced-friendship's `net6.0` test TFM is unrunnable here).
 - BepInEx plugin GUID: `darkharasho.ForceFloat`; name: `ForceFloat`.
 - Plugin version is read from `manifest.json` `version_number` by the csproj regex (do not hardcode `PLUGIN_VERSION`).
 - Game DLL references resolve via `$(GameDir)/REPO_Data/Managed`; default `GameDir` is the Windows Steam path, overridden at build time. Local build/test uses `GAME_DIR=/var/mnt/data/SteamLibrary/steamapps/common/REPO`.

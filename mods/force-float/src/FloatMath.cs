@@ -36,7 +36,7 @@ namespace ForceFloat
             float sqr = v.SqrMagnitude;
             if (sqr > 1f)
             {
-                float inv = 1f / (float)Math.Sqrt(sqr);
+                float inv = 1f / MathF.Sqrt(sqr);
                 return new V3(x * inv, y * inv, z * inv);
             }
             return v;
