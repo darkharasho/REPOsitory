@@ -1,0 +1,9 @@
+{
+    "name": "ForceFloat",
+    "version_number": "0.1.0",
+    "website_url": "https://github.com/darkharasho/REPOsitory",
+    "description": "Everyone floats. Permanent Zero Gravity Staff effect for all players during levels — tumble, anti-gravity, and steer through the air.",
+    "dependencies": [
+        "BepInEx-BepInExPack-5.4.2100"
+    ]
+}
