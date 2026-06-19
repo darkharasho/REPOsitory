@@ -101,7 +101,10 @@ namespace ForcedFriendship
                 Vector3 from = new Vector3(self.X, self.Y, self.Z) + Vector3.up * BeamHeight;
                 Vector3 to = new Vector3(a.X, a.Y, a.Z) + Vector3.up * BeamHeight;
                 lr.enabled = true;
-                lr.widthMultiplier = width;
+                // Set start/end width explicitly (not just widthMultiplier) so shrinking the
+                // Width config takes effect immediately and doesn't depend on the width curve.
+                lr.startWidth = width;
+                lr.endWidth = width;
                 lr.SetPosition(0, from);
                 lr.SetPosition(1, to);
                 Color c = ZoneColor(zone, colorblind);
