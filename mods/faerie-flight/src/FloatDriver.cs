@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using HarmonyLib;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 namespace FaerieFlight
 {
@@ -52,6 +53,27 @@ namespace FaerieFlight
         }
 
         private static bool IsAlive(PlayerAvatar pa) => !AvatarDeadSetRef(pa) && !AvatarIsDisabledRef(pa);
+
+        private void OnEnable() => SceneManager.sceneLoaded += OnSceneLoaded;
+        private void OnDisable() => SceneManager.sceneLoaded -= OnSceneLoaded;
+
+        /// <summary>
+        /// FloatDriver persists across levels (it lives on the BepInEx plugin GameObject), so its
+        /// caches must NOT outlive a level. A custom level (e.g. a Backrooms map) can load/unload its
+        /// own asset bundles, which can unload the cached ZeroGravity prefab's sub-assets — leaving a
+        /// prefab that still engages tumble but no longer provides zero-grav control ("can't move").
+        /// Because the prefab was cached non-null forever, every later level (vanilla included) kept
+        /// spawning effects from that degraded prefab. Resetting per scene forces a fresh, valid
+        /// resolution and drops dead effect references (their GameObjects are destroyed on unload).
+        /// </summary>
+        private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
+        {
+            _affectPrefab = null;
+            _searched = false;
+            _active.Clear();
+            _nextTry.Clear();
+            Plugin.Log.LogInfo($"[FloatDiag] scene '{scene.name}' loaded -> reset prefab + per-player state");
+        }
 
         private void Update()
         {
