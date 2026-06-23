@@ -24,7 +24,7 @@ namespace ColorblindMode
                     new AcceptableValueRange<float>(0f, 1f)));
 
             new Harmony(PluginInfo.PLUGIN_GUID).PatchAll();
-            // gameObject.AddComponent<ColorblindController>();
+            gameObject.AddComponent<ColorblindController>();
             Log.LogInfo($"ColorblindMode v{PluginInfo.PLUGIN_VERSION} loaded.");
         }
     }
