@@ -57,6 +57,10 @@
       <HintPath>$(ManagedDir)/Photon3Unity3D.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <Reference Include="Unity.Postprocessing.Runtime">
+      <HintPath>$(ManagedDir)/Unity.Postprocessing.Runtime.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
   </ItemGroup>
 
 </Project>
