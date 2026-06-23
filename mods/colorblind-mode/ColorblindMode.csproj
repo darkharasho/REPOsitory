@@ -21,6 +21,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- The xUnit test project lives under tests/; keep it out of the mod assembly. -->
+    <Compile Remove="tests/**/*.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="BepInEx.Core" Version="5.4.21.0">
       <ExcludeAssets>runtime</ExcludeAssets>
     </PackageReference>
