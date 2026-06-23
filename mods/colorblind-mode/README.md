@@ -1,14 +1,14 @@
 # ColorblindMode
 
-A R.E.P.O. mod that adds an on/off colorblind mode, adjusting the game's colors for colorblind accessibility.
+A R.E.P.O. mod that applies color-blind correction, adjusting the game's colors for colorblind accessibility.
 
-When enabled, the mod applies a full-screen color-correction filter so on-screen colors are easier to distinguish for colorblind players. Toggle it off to return to the game's default colors.
+The mod applies a full-screen daltonization filter that corrects colors based on the selected colorblindness type, with adjustable intensity. Choose from Deuteranopia, Protanopia, or Tritanopia correction, or turn it off to restore the game's default colors.
 
 ## Features
 
-- Single on/off toggle for colorblind correction
-- Applies globally to the whole screen (no per-object recoloring needed)
-- Compatible with [REPOConfig](https://thunderstore.io/c/repo/p/nickklmao/REPOConfig/) — flip the toggle in-game via the config menu
+- Per-type colorblind correction (Deuteranopia, Protanopia, Tritanopia) with adjustable intensity
+- Applies globally to the whole screen via Post Processing (no per-object recoloring needed)
+- Client-side; compatible with [REPOConfig](https://thunderstore.io/c/repo/p/nickklmao/REPOConfig/) — select correction type and intensity in-game via the config menu
 
 ## Configuration
 
@@ -16,7 +16,8 @@ Config file: `BepInEx/config/darkharasho.ColorblindMode.cfg`
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `Enabled` | `false` | When true, the colorblind color correction is applied. When false, the game uses its default colors. |
+| `Type` | `Off` | Colorblindness type to correct for: `Off`, `Deuteranopia`, `Protanopia`, `Tritanopia`. `Off` restores the game's default colors. |
+| `Intensity` | `1.0` | Strength of the correction (`0.0`–`1.0`). `0` = no change, `1` = full correction. |
 
 ## Dependencies
 

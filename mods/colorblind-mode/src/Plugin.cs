@@ -1,7 +1,6 @@
 using BepInEx;
 using BepInEx.Configuration;
 using BepInEx.Logging;
-using HarmonyLib;
 
 namespace ColorblindMode
 {
@@ -23,7 +22,6 @@ namespace ColorblindMode
                     "Strength of the correction. 0 = no change, 1 = full correction.",
                     new AcceptableValueRange<float>(0f, 1f)));
 
-            new Harmony(PluginInfo.PLUGIN_GUID).PatchAll();
             gameObject.AddComponent<ColorblindController>();
             Log.LogInfo($"ColorblindMode v{PluginInfo.PLUGIN_VERSION} loaded.");
         }
