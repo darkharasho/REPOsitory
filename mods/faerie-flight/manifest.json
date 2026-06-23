@@ -1,6 +1,6 @@
 {
     "name": "FaerieFlight",
-    "version_number": "0.1.1",
+    "version_number": "0.1.2",
     "website_url": "https://github.com/darkharasho/REPOsitory",
     "description": "Everyone sprouts wings and floats — a permanent Zero Gravity Staff effect for all players during levels. Tumble weightlessly, steer through the air, flashlight stays lit.",
     "dependencies": [
