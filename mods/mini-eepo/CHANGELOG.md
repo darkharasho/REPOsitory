@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.0
+- **Reverted all held-weapon height/stabilization fixes.** None of the approaches (SolidAim-port stabilization, proportional grab-drop restore, blocking ScalerCore's `ForceGrabPointVerticalScalePatch` lift) reliably kept guns/melee at hand height for shrunk players, so they now use ScalerCore's default hold. Removed `HeldGunStabilizationPatch`, `WeaponGrabVerticalRestorePatch`, `ForceGrabPointWeaponBlocker`, and the `Jangnana.SolidAim` soft-dependency. The whip-knockdown and cart-recoil fixes are kept.
+- **New: `ShrinkValuables` toggle** (default on). Master on/off for shrinking valuables. When off, valuables spawn full-size — but the separate in-cart shrink (`CartScale`) still applies, so a valuable shrinks once placed in the cart.
+- **New: `ShrinkCart` toggle** (default **on**). The cart (C.A.R.T) is an equippable item, so it already shrank via the item path (`ItemScale`); this toggle gates that independently so you can keep the cart full-size while other items shrink. Default on preserves prior behavior. Gated everywhere the cart could be re-shrunk (spawn, post-join rescale, un-equip) and host-synced to clients.
+
 ## 1.3.7
 - Fix: held guns **and melee weapons** ride up to head height on ScalerCore 0.6.1. ScalerCore 0.6.1 added a second vertical patch — `ForceGrabPointVerticalScalePatch` — that shoves the grab puller up by `cameraUp * 0.3*(1-scale)` (≈ +0.18m at 0.4 scale) for any scaled player holding a force-grab-point item; both guns (`ItemGun`) and melee (`ItemMelee`) have one, so the lift stacks on top of the weapon's hold and parks it near the head. The 1.3.4/1.3.5 hold rework is self-contained (aim offset + restored grab drop) and doesn't want that lift, but nothing cancelled it. Now skip ScalerCore's raise for held guns and melee, and restore the game's proportional `-0.2 * scale` grab drop for both (previously gun-only). Valuable force-grab items (e.g. crystal ball) keep ScalerCore's lift. Earlier fixes were built against ScalerCore 0.5.x, which had no such patch.
 

@@ -12,10 +12,6 @@ namespace MiniEepo
 {
     [BepInPlugin(PluginInfo.PLUGIN_GUID, PluginInfo.PLUGIN_NAME, PluginInfo.PLUGIN_VERSION)]
     [BepInDependency("Vippy.ScalerCore", BepInDependency.DependencyFlags.HardDependency)]
-    // Soft-depend on SolidAim so it loads first when present — our Awake checks for it to skip
-    // our redundant held-gun stabilization. Without this, BepInEx may load us first and the
-    // detection misses, leaving both mods stabilizing every PGO every FixedUpdate.
-    [BepInDependency("Jangnana.SolidAim", BepInDependency.DependencyFlags.SoftDependency)]
     public class Plugin : BaseUnityPlugin
     {
         internal static ManualLogSource Log = null!;
@@ -23,6 +19,8 @@ namespace MiniEepo
         internal static ConfigEntry<float> ItemScale = null!;
         internal static ConfigEntry<float> ValuableScale = null!;
         internal static ConfigEntry<float> CartScale = null!;
+        internal static ConfigEntry<bool> ShrinkValuables = null!;
+        internal static ConfigEntry<bool> ShrinkCart = null!;
         internal static ConfigEntry<bool> VoiceMod = null!;
         internal static ConfigEntry<bool> ShrinkInShop = null!;
 
@@ -31,6 +29,8 @@ namespace MiniEepo
         internal static float ActiveItemScale;
         internal static float ActiveValuableScale;
         internal static float ActiveCartScale;
+        internal static bool ActiveShrinkValuables;
+        internal static bool ActiveShrinkCart;
         internal static bool ActiveVoiceMod;
         internal static bool ActiveShrinkInShop;
 
@@ -49,6 +49,15 @@ namespace MiniEepo
             CartScale = Config.Bind("Scaling", "CartScale", 1.0f,
                 new ConfigDescription("Extra scale multiplier applied when a valuable is in the cart (1.0 = no change, 0.5 = half size)", range));
 
+            ShrinkValuables = Config.Bind("Scaling", "ShrinkValuables", true,
+                new ConfigDescription("Master on/off for shrinking valuables. When false, valuables spawn at full size " +
+                "(ValuableScale ignored). Separate from CartScale, which only shrinks valuables once they're IN the cart."));
+
+            ShrinkCart = Config.Bind("Scaling", "ShrinkCart", true,
+                new ConfigDescription("On/off for shrinking the cart (C.A.R.T). The cart is an equippable item, so it " +
+                "shrinks via ItemScale through the item path; this toggle gates that independently. Default true " +
+                "(matches prior behavior). When false, the cart stays full size even though other items shrink."));
+
             VoiceMod = Config.Bind("Audio", "VoiceMod", true,
                 new ConfigDescription("Enable voice pitch modulation when players are shrunk"));
 
@@ -64,9 +73,11 @@ namespace MiniEepo
             VoiceMod.SettingChanged += (_, _) => ActiveVoiceMod = VoiceMod.Value;
             PlayerScale.SettingChanged   += (_, _) => OnHostScaleConfigChanged();
             ItemScale.SettingChanged     += (_, _) => OnHostScaleConfigChanged();
-            ValuableScale.SettingChanged += (_, _) => OnHostScaleConfigChanged();
-            CartScale.SettingChanged     += (_, _) => OnHostScaleConfigChanged();
-            ShrinkInShop.SettingChanged  += (_, _) => OnHostScaleConfigChanged();
+            ValuableScale.SettingChanged   += (_, _) => OnHostScaleConfigChanged();
+            CartScale.SettingChanged       += (_, _) => OnHostScaleConfigChanged();
+            ShrinkValuables.SettingChanged += (_, _) => OnHostScaleConfigChanged();
+            ShrinkCart.SettingChanged      += (_, _) => OnHostScaleConfigChanged();
+            ShrinkInShop.SettingChanged    += (_, _) => OnHostScaleConfigChanged();
 
             // Attach SettingsSyncer to our own plugin GameObject (BepInEx keeps it alive across
             // scenes). A fresh GameObject didn't reliably get its Start callback fired.
@@ -180,46 +191,10 @@ namespace MiniEepo
                 Log.LogInfo($"[Revive] Patched {name}");
             }
 
-            // If SolidAim is loaded it already does our held-gun stabilization (we mirror their
-            // approach). Skip registering ours so PhysGrabObject.FixedUpdate doesn't pay Harmony
-            // invocation overhead per PGO at 50Hz.
-            if (BepInEx.Bootstrap.Chainloader.PluginInfos.ContainsKey("Jangnana.SolidAim"))
-                Log.LogInfo("[Stabilize] SolidAim detected — skipping built-in held-gun stabilization");
-            else
-            {
-                var pgoFixed = AccessTools.Method(typeof(PhysGrabObject), "FixedUpdate");
-                if (pgoFixed != null)
-                    harmony.Patch(pgoFixed, postfix: new HarmonyMethod(typeof(HeldGunStabilizationPatch), nameof(HeldGunStabilizationPatch.Postfix)));
-            }
-
-            // Held-gun height is handled by HeldGunStabilizationPatch above (our SolidAim port),
-            // registered only when SolidAim is absent, plus GunGrabVerticalRestorePatch which restores
-            // the proportional grab drop ScalerCore's GrabVerticalPositionScalePatch zeroes out.
-            //
-            // ScalerCore 0.6.1 added a SECOND vertical patch — ForceGrabPointVerticalScalePatch — that
-            // those two don't account for. It postfixes PhysGrabber and shoves the grab puller/plane UP
-            // by cameraUp * 0.3*(1-Factor) (≈ +0.18m at 0.4 scale) for any scaled player holding an item
-            // with an active forceGrabPoint. Guns activate a forceGrabPoint, so held guns ride ~0.18m up
-            // — on a ~0.28m-tall body that's head/overhead height (the "guns still way higher up" bug
-            // that resurfaced when ScalerCore upgraded from 0.5.x, which had no such patch). Block that
-            // raise for guns and melee weapons (same Prefix-returns-false pattern as BonkBlocker) —
-            // mini-eepo positions those itself; valuable forcegrab items keep ScalerCore's lift untouched.
-            System.Type? forceGrabPatch = null;
-            foreach (var asm in System.AppDomain.CurrentDomain.GetAssemblies())
-            {
-                if (asm.GetName().Name != "ScalerCore") continue;
-                foreach (var t in asm.GetTypes())
-                    if (t.Name == "ForceGrabPointVerticalScalePatch") { forceGrabPatch = t; break; }
-                break;
-            }
-            var forceGrabPostfix = forceGrabPatch != null ? AccessTools.Method(forceGrabPatch, "Postfix") : null;
-            if (forceGrabPostfix != null)
-            {
-                harmony.Patch(forceGrabPostfix, prefix: new HarmonyMethod(typeof(ForceGrabPointWeaponBlocker), nameof(ForceGrabPointWeaponBlocker.Prefix)));
-                Log.LogInfo("[GunHeight] Neutralized ScalerCore's ForceGrabPointVerticalScalePatch for held guns/melee (stops weapons riding up to head height)");
-            }
-            else
-                Log.LogWarning("[GunHeight] ScalerCore ForceGrabPointVerticalScalePatch.Postfix not found — held weapons may ride up (older/newer ScalerCore?)");
+            // NOTE: held-weapon height/stabilization fixes were removed in 1.4.0 — none of the
+            // approaches (SolidAim-port stabilization, proportional grab-drop restore, blocking
+            // ScalerCore's ForceGrabPointVerticalScalePatch lift) reliably fixed weapons riding up
+            // for shrunk players, so guns/melee now use ScalerCore's default hold.
 
             // Cart push recoil. The game's PhysGrabCart.CartSteer parks the cart a fixed 2–2.5m
             // (3–4 sprinting) in front of the grabber. ScalerCore's CartSteer transpiler routes that
@@ -254,6 +229,8 @@ namespace MiniEepo
             ActiveItemScale     = ItemScale.Value;
             ActiveValuableScale = ValuableScale.Value;
             ActiveCartScale     = CartScale.Value;
+            ActiveShrinkValuables = ShrinkValuables.Value;
+            ActiveShrinkCart    = ShrinkCart.Value;
             ActiveVoiceMod      = VoiceMod.Value;
             ActiveShrinkInShop  = ShrinkInShop.Value;
         }
@@ -294,6 +271,12 @@ namespace MiniEepo
         // we are inside ApplyIfNotScaled so the patch lets our calls through.
         internal static bool IsApplying;
 
+        // The cart (C.A.R.T) is a PhysGrabCart that also rides the item path (it has ItemEquippable).
+        // True when the given object is part of a cart — used to gate cart shrinking behind ShrinkCart.
+        internal static bool IsCart(GameObject go) =>
+            go.GetComponentInParent<PhysGrabCart>(true) != null ||
+            go.GetComponentInChildren<PhysGrabCart>(true) != null;
+
         internal static void Shrink(GameObject go, float factor)
         {
             ManagedObjects.Add(go.GetInstanceID());
@@ -317,6 +300,8 @@ namespace MiniEepo
         private const string K_VALUABLE = "ME_VS";
         private const string K_CART     = "ME_CS";
         private const string K_SHOP     = "ME_SS"; // ShrinkInShop toggle
+        private const string K_VAL_ON   = "ME_VO"; // ShrinkValuables toggle
+        private const string K_CART_ON  = "ME_CO"; // ShrinkCart toggle
 
         // Static singleton — FindObjectOfType doesn't reliably find us when attached to the BepInEx
         // plugin GameObject (which lives outside the normal scene hierarchy).
@@ -438,8 +423,10 @@ namespace MiniEepo
             if (props.ContainsKey(K_VALUABLE)) { var v = (float)props[K_VALUABLE]; if (Plugin.ActiveValuableScale != v) { Plugin.ActiveValuableScale = v; changed = true; } }
             if (props.ContainsKey(K_CART))     { var v = (float)props[K_CART];     if (Plugin.ActiveCartScale     != v) { Plugin.ActiveCartScale     = v; changed = true; } }
             if (props.ContainsKey(K_SHOP))     { var v = (bool)props[K_SHOP];      if (Plugin.ActiveShrinkInShop  != v) { Plugin.ActiveShrinkInShop  = v; changed = true; } }
+            if (props.ContainsKey(K_VAL_ON))   { var v = (bool)props[K_VAL_ON];    if (Plugin.ActiveShrinkValuables != v) { Plugin.ActiveShrinkValuables = v; changed = true; } }
+            if (props.ContainsKey(K_CART_ON))  { var v = (bool)props[K_CART_ON];   if (Plugin.ActiveShrinkCart != v) { Plugin.ActiveShrinkCart = v; changed = true; } }
             if (changed)
-                Plugin.Log.LogInfo($"[Sync] Pulled host settings — player={Plugin.ActivePlayerScale} item={Plugin.ActiveItemScale} valuable={Plugin.ActiveValuableScale} cart={Plugin.ActiveCartScale} shrinkInShop={Plugin.ActiveShrinkInShop}");
+                Plugin.Log.LogInfo($"[Sync] Pulled host settings — player={Plugin.ActivePlayerScale} item={Plugin.ActiveItemScale} valuable={Plugin.ActiveValuableScale} cart={Plugin.ActiveCartScale} shrinkValuables={Plugin.ActiveShrinkValuables} shrinkCart={Plugin.ActiveShrinkCart} shrinkInShop={Plugin.ActiveShrinkInShop}");
         }
 
         // Public entry point for runtime config changes (REPOConfig sliders, etc.) — only valid
@@ -457,6 +444,8 @@ namespace MiniEepo
         private float _lastPushedPlayer = float.NaN, _lastPushedItem = float.NaN;
         private float _lastPushedValuable = float.NaN, _lastPushedCart = float.NaN;
         private bool? _lastPushedShop;
+        private bool? _lastPushedValOn;
+        private bool? _lastPushedCartOn;
 
         private void PushHostSettings()
         {
@@ -464,21 +453,26 @@ namespace MiniEepo
             float p = Plugin.PlayerScale.Value, i = Plugin.ItemScale.Value;
             float v = Plugin.ValuableScale.Value, c = Plugin.CartScale.Value;
             bool s = Plugin.ShrinkInShop.Value;
+            bool vo = Plugin.ShrinkValuables.Value;
+            bool co = Plugin.ShrinkCart.Value;
             if (p == _lastPushedPlayer && i == _lastPushedItem &&
-                v == _lastPushedValuable && c == _lastPushedCart && s == _lastPushedShop)
+                v == _lastPushedValuable && c == _lastPushedCart && s == _lastPushedShop &&
+                vo == _lastPushedValOn && co == _lastPushedCartOn)
             {
                 Plugin.ResetToLocalConfig(); // still refresh Active mirrors, but skip broadcast
                 return;
             }
             _lastPushedPlayer = p; _lastPushedItem = i;
             _lastPushedValuable = v; _lastPushedCart = c; _lastPushedShop = s;
+            _lastPushedValOn = vo; _lastPushedCartOn = co;
             var props = new ExitGames.Client.Photon.Hashtable
             {
                 [K_PLAYER] = p, [K_ITEM] = i, [K_VALUABLE] = v, [K_CART] = c, [K_SHOP] = s,
+                [K_VAL_ON] = vo, [K_CART_ON] = co,
             };
             PhotonNetwork.CurrentRoom.SetCustomProperties(props);
             Plugin.ResetToLocalConfig();
-            Plugin.Log.LogInfo($"[Sync] Host pushed settings — player={p} item={i} valuable={v} cart={c} shrinkInShop={s}");
+            Plugin.Log.LogInfo($"[Sync] Host pushed settings — player={p} item={i} valuable={v} cart={c} shrinkValuables={vo} shrinkCart={co} shrinkInShop={s}");
         }
 
         private IEnumerator RescaleAfterJoin()
@@ -489,8 +483,9 @@ namespace MiniEepo
             {
                 var attrs = pgo.GetComponentInParent<ItemAttributes>(includeInactive: true)
                          ?? pgo.GetComponentInChildren<ItemAttributes>(includeInactive: true);
-                if (attrs != null)
-                    Plugin.Shrink(attrs.gameObject, Plugin.ActiveItemScale);
+                if (attrs == null) continue;
+                if (Plugin.IsCart(pgo.gameObject) && !Plugin.ActiveShrinkCart) continue; // cart shrinking off
+                Plugin.Shrink(attrs.gameObject, Plugin.ActiveItemScale);
             }
             foreach (var pa in FindObjectsOfType<PlayerAvatar>())
                 Plugin.Shrink(pa.gameObject, Plugin.ActivePlayerScale);
@@ -604,6 +599,11 @@ namespace MiniEepo
                 target = __instance.gameObject;
             if (target == null) return;
 
+            // The cart (C.A.R.T) is a PhysGrabCart that also carries ItemEquippable, so it rides this
+            // item path and shrinks by ItemScale. Gate that behind ShrinkCart so the cart can be kept
+            // full-size independently of other items.
+            if (Plugin.IsCart(__instance.gameObject) && !Plugin.ActiveShrinkCart) return;
+
             // Equippables that aren't guns (melee, grenades, batons, etc.) get direct localScale
             // instead of the full ScalerCore path. ScalerCore registers a controller and tracks
             // these per-frame, which spiked frame time the moment a melee weapon spawned —
@@ -651,7 +651,11 @@ namespace MiniEepo
             int id = __instance.gameObject.GetInstanceID();
             if (!_scaled.Add(id)) return;
 
-            __instance.transform.localScale *= Plugin.ActiveValuableScale;
+            // Master on/off for base valuable shrinking. When off, valuables spawn at full size, but we
+            // STILL attach the cart tracker below so the separate in-cart shrink (CartScale) keeps
+            // working — a full-size valuable then shrinks only once it's placed in the cart.
+            if (Plugin.ActiveShrinkValuables)
+                __instance.transform.localScale *= Plugin.ActiveValuableScale;
 
             // Always attach the tracker — the gate on ActiveCartScale is in OnTriggerEnter so it
             // works even when valuables spawn before the host's settings sync arrives.
@@ -670,34 +674,6 @@ namespace MiniEepo
     internal static class BonkBlocker
     {
         public static bool Prefix() => false;
-    }
-
-    // Applied as a Prefix on ScalerCore 0.6.1's ForceGrabPointVerticalScalePatch.Postfix. That postfix
-    // raises the grab puller/plane by cameraUp * 0.3*(1-Factor) whenever a scaled player holds an item
-    // with an active forceGrabPoint — that lift (≈ +0.18m at 0.4 scale) stacks on top of the hold
-    // mini-eepo already produces and parks the weapon near the player's head. Returning false skips
-    // ScalerCore's raise, but ONLY for guns and melee weapons — the two forcegrab items mini-eepo
-    // repositions itself (guns via HeldGunStabilizationPatch, both via WeaponGrabVerticalRestorePatch
-    // restoring the game's -0.2 drop). Valuable forcegrab items (e.g. the crystal ball) aren't
-    // repositioned by us, so we let ScalerCore's lift run for them. The parameter name must match the
-    // formal parameter on ScalerCore's Postfix (PhysGrabObject ___grabbedPhysGrabObject) so Harmony
-    // binds it. Cache the weapon lookup per PGO — this fires per grabbing player per frame.
-    internal static class ForceGrabPointWeaponBlocker
-    {
-        private static readonly Dictionary<int, bool> _isWeapon = new Dictionary<int, bool>();
-
-        public static bool Prefix(PhysGrabObject ___grabbedPhysGrabObject)
-        {
-            if (___grabbedPhysGrabObject == null) return true;
-            int id = ___grabbedPhysGrabObject.GetInstanceID();
-            if (!_isWeapon.TryGetValue(id, out var isWeapon))
-            {
-                isWeapon = ___grabbedPhysGrabObject.GetComponent<ItemGun>() != null
-                        || ___grabbedPhysGrabObject.GetComponent<ItemMelee>() != null;
-                _isWeapon[id] = isWeapon;
-            }
-            return !isWeapon; // false = skip ScalerCore's upward raise for held guns/melee
-        }
     }
 
     internal static class VoicePitchPatch
@@ -774,6 +750,8 @@ namespace MiniEepo
         static void Postfix(ItemEquippable __instance)
         {
             if (Plugin.ActiveItemScale >= 0.99f) return;
+            // Don't re-shrink the cart when cart shrinking is disabled (the cart is an ItemEquippable).
+            if (Plugin.IsCart(__instance.gameObject) && !Plugin.ActiveShrinkCart) return;
             __instance.StartCoroutine(Reshrink(__instance));
         }
 
@@ -786,118 +764,6 @@ namespace MiniEepo
             float t = Plugin.ActiveItemScale;
             if (target.transform.localScale.x > 0.9f && target.transform.localScale.x > t + 0.4f)
                 target.transform.localScale = new Vector3(t, t, t);
-        }
-    }
-
-    // Held-gun stabilization for a shrunk local player — a faithful port of jangnana/SolidAim's
-    // ApplyAimStabilization. This is what keeps guns at the right HEIGHT and angle: REPO holds a
-    // gun by pulling it toward the grab puller and pitching it by ItemGun.aimVerticalOffset, but a
-    // 40%-scale player has reduced grab strength so heavy guns droop, and ScalerCore zeroes the
-    // gun's built-in downward grab offset for scaled players so the gun rides up. Setting the gun's
-    // aimVerticalOffset + a strong, timed grab/torque override and slerping rotation toward the
-    // camera every FixedUpdate reproduces SolidAim's proven hold. (We previously layered a separate
-    // puller "lift" on top, which over-corrected and held guns too high — removed in favour of this.)
-    //
-    // No [HarmonyPatch] attribute — registered manually in Plugin.Awake only when SolidAim is
-    // absent (when it's present we defer to it entirely). PhysGrabObject.FixedUpdate fires per PGO
-    // at 50Hz, so the per-call work is kept minimal and gated behind a cached gun check.
-    internal static class HeldGunStabilizationPatch
-    {
-        // Cache the ItemGun per PGO (null when not a gun). GetComponent allocates and is the most
-        // expensive check here; ItemGun never appears/disappears on a live PGO, so resolve once and
-        // reuse. Without this, every melee weapon / valuable / prop pays a GetComponent every
-        // FixedUpdate (50Hz) — heavy levels and segmented melee items tanked frame time.
-        private static readonly Dictionary<int, ItemGun?> _gun = new Dictionary<int, ItemGun?>();
-
-        // PlayerAvatar.isCrouching is internal — reflect it once (matches SolidAim, which does the
-        // same). SolidAim eases the aim pitch when crouched so the gun doesn't clip the floor.
-        private static System.Reflection.FieldInfo? _isCrouchingField;
-
-        internal static void Postfix(PhysGrabObject __instance)
-        {
-            // Cheapest/most-discriminating check first: most PGOs aren't guns, so reject them
-            // before touching SemiFunc or any list scans.
-            int id = __instance.GetInstanceID();
-            if (!_gun.TryGetValue(id, out var gun))
-            {
-                gun = __instance.GetComponent<ItemGun>();
-                _gun[id] = gun;
-            }
-            if (gun == null) return;
-
-            var local = SemiFunc.PlayerAvatarLocal();
-            if (local == null) return;
-            float scale = local.transform.localScale.x;
-            if (scale > 0.99f) return; // not shrunk — let vanilla physics run
-            if (!__instance.playerGrabbing.Contains(local.physGrabber)) return;
-
-            // SolidAim's lever: ease the gun's aim pitch (default -5) so it sits at eye level rather
-            // than riding up, then hold it there with a strong, short-timed grab/torque override.
-            _isCrouchingField ??= AccessTools.Field(typeof(PlayerAvatar), "isCrouching");
-            bool crouching = _isCrouchingField != null && (bool)_isCrouchingField.GetValue(local);
-            gun.aimVerticalOffset = crouching ? -1f : -3f;
-            gun.torqueMultiplier = 2f;
-
-            __instance.OverrideMass(0.25f, 0.1f);
-            __instance.OverrideGrabStrength(2f, 0.1f);
-            __instance.OverrideTorqueStrength(5f, 0.1f);
-            __instance.OverrideDrag(2f, 0.1f);
-            if (__instance.rb != null) __instance.rb.angularDrag = 29f;
-
-            var cam = Camera.main;
-            if (cam != null && __instance.rb != null)
-                __instance.rb.rotation = Quaternion.Slerp(
-                    __instance.rb.rotation, cam.transform.rotation, Time.fixedDeltaTime * 10f);
-        }
-    }
-
-    // This is the actual held-WEAPON HEIGHT fix. REPO holds a weapon's grab point a bit below eye level
-    // each frame: ItemGun.UpdateMaster calls PhysGrabObject.OverrideGrabVerticalPosition(grabVerticalOffset)
-    // (grabVerticalOffset = -0.2), and ItemMelee.GrabVerticalPositionOverride does the same with a
-    // hardcoded -0.2; the engine then applies `pullerPos += cameraUp * thatValue`. ScalerCore's
-    // GrabVerticalPositionScalePatch PREFIXES the same method and forces the value to 0 for ANY scaled
-    // player — so a shrunk player loses that -0.2 drop and the weapon rides ~0.2m up, which on a
-    // 0.4-scale body (~0.28m tall) puts it up near the head. (aimVerticalOffset above is only aim pitch,
-    // not height — it can't fix this.)
-    //
-    // We postfix the same method (runs after ScalerCore's prefix) and, for a weapon held by a shrunk
-    // player, restore a PROPORTIONAL drop: offset * factor (-0.2 * 0.4 = -0.08). That's the full-size
-    // -0.2 scaled to the tiny body, so the weapon hangs at hand height again instead of eye/overhead.
-    // Non-weapons and full-size holders are left exactly as ScalerCore set them.
-    [HarmonyPatch(typeof(PhysGrabObject), "OverrideGrabVerticalPosition")]
-    internal static class WeaponGrabVerticalRestorePatch
-    {
-        // Cache the per-PGO drop offset (NaN = not a weapon we manage). OverrideGrabVerticalPosition is
-        // also called for enemies/other items every frame, so reject non-weapons cheaply before any
-        // list scan. Guns expose grabVerticalOffset as a field (default -0.2); ItemMelee hardcodes -0.2.
-        private static readonly Dictionary<int, float> _offset = new Dictionary<int, float>();
-        private static readonly AccessTools.FieldRef<PhysGrabObject, float> _posRef =
-            AccessTools.FieldRefAccess<PhysGrabObject, float>("overrideGrabRelativeVerticalPosition");
-        private static readonly AccessTools.FieldRef<PhysGrabObject, float> _timerRef =
-            AccessTools.FieldRefAccess<PhysGrabObject, float>("overrideGrabRelativeVerticalPositionTimer");
-
-        private static void Postfix(PhysGrabObject __instance)
-        {
-            int id = __instance.GetInstanceID();
-            if (!_offset.TryGetValue(id, out var offset))
-            {
-                var gun = __instance.GetComponent<ItemGun>();
-                if (gun != null) offset = gun.grabVerticalOffset;
-                else offset = __instance.GetComponent<ItemMelee>() != null ? -0.2f : float.NaN;
-                _offset[id] = offset;
-            }
-            if (float.IsNaN(offset) || __instance.playerGrabbing == null) return;
-
-            float factor = 1f;
-            foreach (var pg in __instance.playerGrabbing)
-            {
-                var pa = pg != null ? pg.playerAvatar : null;
-                if (pa != null) { factor = pa.transform.localScale.x; break; }
-            }
-            if (factor >= 0.99f) return; // holder not shrunk — keep ScalerCore's value
-
-            _posRef(__instance) = offset * factor;
-            _timerRef(__instance) = 0.1f;
         }
     }
 
