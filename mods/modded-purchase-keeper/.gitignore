@@ -1,0 +1,19 @@
+# Build output
+bin/
+obj/
+*.zip
+
+# Rider / VS
+.idea/
+.vs/
+*.user
+
+# Environment
+.env
+
+# Thunderstore icon — versioned for this mod (source: icon.svg)
+*.png
+!icon.png
+
+# Superpowers
+.superpowers

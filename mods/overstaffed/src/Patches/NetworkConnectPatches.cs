@@ -40,7 +40,15 @@ namespace Overstaffed.Patches
                 if (instr.opcode == OpCodes.Ldc_I4_6 && replaced == 0)
                 {
                     replaced++;
-                    yield return new CodeInstruction(OpCodes.Call, helper);
+                    // Mutate IN PLACE — do NOT yield a fresh CodeInstruction. This ldc.i4.6 is the
+                    // "true" branch target of the ternary, so it carries a branch label (and possibly
+                    // exception blocks) in instr.labels/instr.blocks. Constructing a new instruction
+                    // would drop them, leaving that label marked on nothing → HarmonyX fails the IL
+                    // compile with "Label #N is not marked" (and the broken wrapper later hard-crashes
+                    // the game on any recompile/unpatch). Reusing instr keeps its labels + blocks.
+                    instr.opcode = OpCodes.Call;
+                    instr.operand = helper;
+                    yield return instr;
                     continue;
                 }
                 yield return instr;

@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#243b63"/>
+      <stop offset="1" stop-color="#0d1524"/>
+    </linearGradient>
+    <linearGradient id="cart" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffd873"/>
+      <stop offset="1" stop-color="#f0a92e"/>
+    </linearGradient>
+  </defs>
+
+  <!-- background -->
+  <rect x="0" y="0" width="256" height="256" rx="46" fill="url(#bg)"/>
+  <rect x="7" y="7" width="242" height="242" rx="40" fill="none" stroke="#5b7cb8" stroke-opacity="0.35" stroke-width="3"/>
+
+  <!-- shopping cart -->
+  <g fill="none" stroke="url(#cart)" stroke-width="13" stroke-linecap="round" stroke-linejoin="round">
+    <!-- handle + basket outline -->
+    <path d="M44 74 L70 74 L92 158 L182 158 L202 100 L86 100"/>
+  </g>
+  <!-- wheels -->
+  <circle cx="104" cy="184" r="13" fill="url(#cart)"/>
+  <circle cx="174" cy="184" r="13" fill="url(#cart)"/>
+
+  <!-- "kept" check badge -->
+  <circle cx="188" cy="78" r="40" fill="#22c55e" stroke="#0d1524" stroke-width="8"/>
+  <path d="M170 80 L184 94 L210 62" fill="none" stroke="#ffffff" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

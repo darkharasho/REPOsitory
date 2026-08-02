@@ -1,0 +1,9 @@
+{
+    "name": "PurchaseDiag",
+    "version_number": "0.1.0",
+    "website_url": "https://github.com/darkharasho/REPOsitory",
+    "description": "Diagnostic: logs the shop-purchased-item -> next-level respawn chain to pinpoint why bought items don't appear.",
+    "dependencies": [
+        "BepInEx-BepInExPack-5.4.2100"
+    ]
+}
