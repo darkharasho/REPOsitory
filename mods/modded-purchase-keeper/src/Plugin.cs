@@ -77,20 +77,14 @@ namespace ModdedPurchaseKeeper
             var sm = StatsManager.instance;
             if (sm == null || Plugin.Ledger.Count == 0) return;
 
-            int fixedN = 0;
             foreach (var kv in Plugin.Ledger)
             {
                 if (kv.Value <= 0) continue;
                 if (!sm.itemDictionary.ContainsKey(kv.Key)) continue; // not registered -> can't spawn
                 int cur = sm.itemsPurchased.TryGetValue(kv.Key, out var c) ? c : 0;
                 if (cur < kv.Value)
-                {
                     sm.itemsPurchased[kv.Key] = kv.Value;
-                    fixedN++;
-                }
             }
-            if (fixedN > 0)
-                Plugin.Log.LogInfo($"[ModdedPurchaseKeeper] Re-asserted {fixedN} purchase count(s) zeroed before truck spawn.");
         }
     }
 }
