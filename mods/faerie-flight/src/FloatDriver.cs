@@ -28,7 +28,14 @@ namespace FaerieFlight
     {
         private const float AffectTime = 5f;            // SemiAffectZeroGravity doubles it -> ~10s effective
         private const float RefreshInterval = 4f;       // master re-broadcasts the float roster this often
-        private const byte FloatEventCode = 199;        // Photon user event range is 1..199
+        // Photon custom event codes are 0..199 (200+ are Photon-internal). REPO's own Assembly-CSharp
+        // RAISES on these custom codes: 199 = "you were kicked by the server" (OnEventReceivedCustom ->
+        // OutroStart + leave room), 123 = kick-by-actor, 124 = ban-by-actor. Broadcasting on any of them
+        // kicks every client (it's why 0.2.0 left clients stuck on the loading screen). Stay clear of all
+        // three; 117 sits below the game codes and well above REPOLib's low auto-allocated range.
+        private const byte FloatEventCode = 117;
+        // Codes REPO itself handles on the custom-event channel. We must never raise on these.
+        private static readonly byte[] RepoReservedEventCodes = { 123, 124, 199 };
 
         private static readonly AccessTools.FieldRef<PlayerAvatar, PlayerTumble> AvatarTumbleRef =
             AccessTools.FieldRefAccess<PlayerAvatar, PlayerTumble>("tumble");
@@ -66,6 +73,16 @@ namespace FaerieFlight
 
         private void OnEnable()
         {
+            // Defense-in-depth: refuse to broadcast on a code REPO treats as kick/ban. If this ever
+            // trips, every client would be force-kicked the moment the host broadcasts the roster.
+            if (System.Array.IndexOf(RepoReservedEventCodes, FloatEventCode) >= 0)
+            {
+                Plugin.Log.LogError(
+                    $"FloatEventCode {FloatEventCode} collides with a REPO-reserved event (kick/ban); " +
+                    "networked float disabled to avoid kicking clients. Pick an unreserved code.");
+                enabled = false;
+                return;
+            }
             SceneManager.sceneLoaded += OnSceneLoaded;
             PhotonNetwork.AddCallbackTarget(this);
         }
