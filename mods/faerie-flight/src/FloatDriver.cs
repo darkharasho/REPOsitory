@@ -189,13 +189,15 @@ namespace FaerieFlight
             for (int i = 0; i < list.Count; i++)
             {
                 var pa = list[i];
-                if (pa == null || !IsAlive(pa)) continue;
-                if (_active.TryGetValue(pa, out var existing) && existing != null) continue;
-
+                if (pa == null) continue;
                 var tumble = AvatarTumbleRef(pa);
-                if (tumble == null) continue;
-                var pgo = TumblePhysGrabObjectRef(tumble);
-                if (pgo == null) continue;
+                var pgo = tumble != null ? TumblePhysGrabObjectRef(tumble) : null;
+                if (!FloatGate.CanSpawnEffect(
+                        Plugin.Enabled.Value, ShouldFloat(), IsAlive(pa),
+                        tumbleLinked: tumble != null,
+                        physGrabObjectLinked: pgo != null,
+                        effectAlreadyActive: _active.TryGetValue(pa, out var existing) && existing != null))
+                    continue;
 
                 var go = Object.Instantiate(prefab, pa.transform.position, Quaternion.identity);
                 var affect = go.GetComponent<SemiAffect>();
@@ -227,33 +229,57 @@ namespace FaerieFlight
                 SendOptions.SendReliable);
         }
 
-        /// <summary>Every client (incl. host) receives the roster and spawns missing effects.</summary>
+        /// <summary>
+        /// Every client (incl. host) receives the roster and spawns missing effects. Runs inside
+        /// Photon's event dispatch, so it must never throw — at level start a roster can name
+        /// players whose PlayerTumble isn't linked yet (<c>SetupRPC</c> lands after level gen),
+        /// and <c>SemiAffect.Setup</c> dereferences <c>tumble.physGrabObject</c> unguarded.
+        /// FloatGate skips those entries; the next 4s broadcast picks them up.
+        /// </summary>
         public void OnEvent(EventData photonEvent)
         {
             if (photonEvent.Code != FloatEventCode) return;
-            // Master-only: ignore rosters not sent by the host (mirrors SemiFunc.MasterOnlyRPC).
-            if (PhotonNetwork.MasterClient == null ||
-                photonEvent.Sender != PhotonNetwork.MasterClient.ActorNumber) return;
-            if (!(photonEvent.CustomData is int[] ids)) return;
-
-            var prefab = GetAffectPrefab();
-            if (prefab == null) return;
-
-            foreach (int viewID in ids)
+            try
             {
-                var pa = SemiFunc.PlayerAvatarGetFromPhotonID(viewID);
-                if (pa == null || !IsAlive(pa)) continue;
-                if (_active.TryGetValue(pa, out var existing) && existing != null) continue;
+                // Master-only: ignore rosters not sent by the host (mirrors SemiFunc.MasterOnlyRPC).
+                if (PhotonNetwork.MasterClient == null ||
+                    photonEvent.Sender != PhotonNetwork.MasterClient.ActorNumber) return;
+                if (!(photonEvent.CustomData is int[] ids)) return;
 
-                var go = Object.Instantiate(prefab, pa.transform.position, Quaternion.identity);
-                var affect = go.GetComponent<SemiAffect>();
-                if (affect == null) { Object.Destroy(go); continue; }
-                affect.direction = Vector3.up;
-                affect.positionOfOriginalAreaOfEffect = pa.transform.position;
-                // Networked bind: resolves the player by view ID and self-destroys if the networked
-                // object isn't ready yet (the next host broadcast retries).
-                affect.Setup(viewID, AffectTime);
-                _active[pa] = affect;
+                bool enabled = Plugin.Enabled.Value;
+                bool floatable = ShouldFloat();
+                if (!enabled || !floatable) return; // stale roster (transition) or locally disabled
+
+                var prefab = GetAffectPrefab();
+                if (prefab == null) return;
+
+                foreach (int viewID in ids)
+                {
+                    var pa = SemiFunc.PlayerAvatarGetFromPhotonID(viewID);
+                    if (pa == null) continue;
+                    var tumble = AvatarTumbleRef(pa);
+                    var pgo = tumble != null ? TumblePhysGrabObjectRef(tumble) : null;
+                    if (!FloatGate.CanSpawnEffect(
+                            enabled, floatable, IsAlive(pa),
+                            tumbleLinked: tumble != null,
+                            physGrabObjectLinked: pgo != null,
+                            effectAlreadyActive: _active.TryGetValue(pa, out var existing) && existing != null))
+                        continue;
+
+                    var go = Object.Instantiate(prefab, pa.transform.position, Quaternion.identity);
+                    var affect = go.GetComponent<SemiAffect>();
+                    if (affect == null) { Object.Destroy(go); continue; }
+                    affect.direction = Vector3.up;
+                    affect.positionOfOriginalAreaOfEffect = pa.transform.position;
+                    // Networked bind: resolves the player by view ID and self-destroys if the networked
+                    // object isn't ready yet (the next host broadcast retries).
+                    affect.Setup(viewID, AffectTime);
+                    _active[pa] = affect;
+                }
+            }
+            catch (System.Exception e)
+            {
+                Plugin.Log.LogError($"FloatDriver.OnEvent: {e}");
             }
         }
 
