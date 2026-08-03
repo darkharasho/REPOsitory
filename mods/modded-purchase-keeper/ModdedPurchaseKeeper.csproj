@@ -22,6 +22,10 @@
     <ManagedDir>$(GameDir)/REPO_Data/Managed</ManagedDir>
   </PropertyGroup>
 
+  <ItemGroup>
+    <Compile Remove="tests/**" />
+  </ItemGroup>
+
   <!-- BepInEx and Harmony from NuGet — no game install required for compilation -->
   <ItemGroup>
     <PackageReference Include="BepInEx.Core" Version="5.4.21.0">

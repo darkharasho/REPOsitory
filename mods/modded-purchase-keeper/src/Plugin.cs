@@ -44,17 +44,79 @@ namespace ModdedPurchaseKeeper
         {
             var sm = StatsManager.instance;
             if (sm == null) return;
-            Plugin.Ledger[itemName] = sm.itemsPurchased.TryGetValue(itemName, out var v) ? v : 0;
+            LedgerLogic.RecordCount(Plugin.Ledger, itemName, sm.itemsPurchased.TryGetValue(itemName, out var v) ? v : 0);
         }
     }
 
-    // Track explicit sets too (e.g. consuming/using a purchased item decrements it).
+    // Track explicit sets too (the charging station's crystal path goes through here).
     [HarmonyPatch(typeof(StatsManager), "SetItemPurchase")]
     internal static class Track_SetItemPurchase
     {
         private static void Postfix(Item _item, int value)
         {
-            if (_item != null) Plugin.Ledger[((UnityEngine.Object)_item).name] = value;
+            if (_item != null) LedgerLogic.RecordCount(Plugin.Ledger, ((UnityEngine.Object)_item).name, value);
+        }
+    }
+
+    // Consumption does NOT go through SetItemPurchase: using a power-up
+    // (ItemUpgrade.PlayerUpgrade) and spending a consumable (StatsManager.ItemRemove —
+    // grenades, health packs, mines, the revive item) decrement/remove itemsPurchased by
+    // DIRECT dictionary writes. Without mirroring those, the ledger stays at the bought
+    // count and the re-assert below resurrects spent items — a free duplicate power-up in
+    // the truck after every consumption. The prefix/postfix pair only syncs when THIS call
+    // actually changed the count, so a REPOLib registration wipe can never be mistaken for
+    // a consumption.
+    [HarmonyPatch(typeof(ItemUpgrade), "PlayerUpgrade")]
+    internal static class Sync_PlayerUpgradeConsumption
+    {
+        private static readonly AccessTools.FieldRef<ItemUpgrade, ItemAttributes> ItemAttributesRef =
+            AccessTools.FieldRefAccess<ItemUpgrade, ItemAttributes>("itemAttributes");
+
+        private static string? KeyOf(ItemUpgrade upgrade)
+        {
+            var attributes = ItemAttributesRef(upgrade);
+            var item = attributes != null ? attributes.item : null;
+            return item != null ? ((UnityEngine.Object)item).name : null;
+        }
+
+        private static int? Count(string key)
+        {
+            var sm = StatsManager.instance;
+            if (sm == null) return null;
+            return sm.itemsPurchased.TryGetValue(key, out var v) ? v : (int?)null;
+        }
+
+        private static void Prefix(ItemUpgrade __instance, ref int? __state)
+        {
+            var key = KeyOf(__instance);
+            __state = key != null ? Count(key) : null;
+        }
+
+        private static void Postfix(ItemUpgrade __instance, int? __state)
+        {
+            var key = KeyOf(__instance);
+            if (key == null || StatsManager.instance == null) return;
+            int? after = Count(key);
+            if (after != __state) LedgerLogic.SyncConsumption(Plugin.Ledger, key, after);
+        }
+    }
+
+    [HarmonyPatch(typeof(StatsManager), "ItemRemove")]
+    internal static class Sync_ItemRemoveConsumption
+    {
+        private static int? Count(StatsManager sm, string key)
+            => sm.itemsPurchased.TryGetValue(key, out var v) ? v : (int?)null;
+
+        private static void Prefix(StatsManager __instance, string instanceName, ref int? __state)
+        {
+            __state = Count(__instance, LedgerLogic.PurchaseKeyFromInstanceName(instanceName));
+        }
+
+        private static void Postfix(StatsManager __instance, string instanceName, int? __state)
+        {
+            string key = LedgerLogic.PurchaseKeyFromInstanceName(instanceName);
+            int? after = Count(__instance, key);
+            if (after != __state) LedgerLogic.SyncConsumption(Plugin.Ledger, key, after);
         }
     }
 
@@ -79,11 +141,10 @@ namespace ModdedPurchaseKeeper
 
             foreach (var kv in Plugin.Ledger)
             {
-                if (kv.Value <= 0) continue;
-                if (!sm.itemDictionary.ContainsKey(kv.Key)) continue; // not registered -> can't spawn
                 int cur = sm.itemsPurchased.TryGetValue(kv.Key, out var c) ? c : 0;
-                if (cur < kv.Value)
-                    sm.itemsPurchased[kv.Key] = kv.Value;
+                var reassert = LedgerLogic.ReassertValue(kv.Value, sm.itemDictionary.ContainsKey(kv.Key), cur);
+                if (reassert is int count)
+                    sm.itemsPurchased[kv.Key] = count;
             }
         }
     }

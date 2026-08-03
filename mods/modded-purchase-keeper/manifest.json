@@ -1,6 +1,6 @@
 {
     "name": "ModdedPurchaseKeeper",
-    "version_number": "0.1.0",
+    "version_number": "0.1.1",
     "website_url": "https://github.com/darkharasho/REPOsitory",
     "description": "Fixes REPOLib-registered (modded) shop items being bought but not appearing in the level. Preserves modded purchase counts across REPOLib's per-level item re-registration.",
     "dependencies": [
