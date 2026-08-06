@@ -60,4 +60,36 @@ namespace FaerieFlight.Tests
             Assert.False(FloatGate.CanSpawnEffect(true, true, true, true, true, effectAlreadyActive: true));
         }
     }
+
+    public class PrefabScanGateTests
+    {
+        // Prefab already resolved -> no scan, ever.
+        [Fact]
+        public void PrefabCached_NeverScans()
+        {
+            Assert.False(FloatGate.ShouldScanPrefab(prefabCached: true, now: 100f, nextScanAllowedAt: 0f));
+        }
+
+        // Fresh scene (nextScanAllowedAt reset to 0) -> first scan runs immediately.
+        [Fact]
+        public void FirstScanAfterSceneReset_Runs()
+        {
+            Assert.True(FloatGate.ShouldScanPrefab(prefabCached: false, now: 0f, nextScanAllowedAt: 0f));
+        }
+
+        // The freeze bug: a failed scan must NOT retry on the next frame.
+        [Fact]
+        public void WithinCooldown_Blocks()
+        {
+            Assert.False(FloatGate.ShouldScanPrefab(prefabCached: false, now: 10.016f, nextScanAllowedAt: 12f));
+        }
+
+        // Once the cooldown elapses the scan may retry (staff can appear late — REPOLib
+        // re-registration / custom-level bundles).
+        [Fact]
+        public void CooldownElapsed_Runs()
+        {
+            Assert.True(FloatGate.ShouldScanPrefab(prefabCached: false, now: 12f, nextScanAllowedAt: 12f));
+        }
+    }
 }

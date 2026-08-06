@@ -28,6 +28,7 @@ namespace FaerieFlight
     {
         private const float AffectTime = 5f;            // SemiAffectZeroGravity doubles it -> ~10s effective
         private const float RefreshInterval = 4f;       // master re-broadcasts the float roster this often
+        private const float PrefabScanCooldown = 2f;    // failed prefab scans retry at most this often
         // Photon custom event codes are 0..199 (200+ are Photon-internal). REPO's own Assembly-CSharp
         // RAISES on these custom codes: 199 = "you were kicked by the server" (OnEventReceivedCustom ->
         // OutroStart + leave room), 123 = kick-by-actor, 124 = ban-by-actor. Broadcasting on any of them
@@ -56,6 +57,7 @@ namespace FaerieFlight
 
         private GameObject? _affectPrefab;
         private bool _searched;
+        private float _nextPrefabScan;
         // The live effect we spawned per player. Key is the PlayerAvatar so it works for both the
         // networked (resolved from a view ID) and singleplayer paths.
         private readonly Dictionary<PlayerAvatar, SemiAffect> _active = new Dictionary<PlayerAvatar, SemiAffect>();
@@ -107,6 +109,7 @@ namespace FaerieFlight
             _searched = false;
             _active.Clear();
             _nextBroadcast = 0f;
+            _nextPrefabScan = 0f;
             Plugin.Log.LogInfo($"[FloatDiag] scene '{scene.name}' loaded -> reset prefab + per-player state");
         }
 
@@ -291,6 +294,12 @@ namespace FaerieFlight
         private GameObject? GetAffectPrefab()
         {
             if (_affectPrefab != null) return _affectPrefab;
+            // A failed scan must not retry every frame: each miss below re-walks the item
+            // dictionary doing synchronous bundle loads, which freezes the game when the
+            // staff is unresolvable (removed by a spawn/shop mod, custom-level bundle
+            // mid-unload). Callers treat null as "not yet" and retry via the next broadcast.
+            if (!FloatGate.ShouldScanPrefab(_affectPrefab != null, Time.time, _nextPrefabScan)) return null;
+            _nextPrefabScan = Time.time + PrefabScanCooldown;
 
             var sm = StatsManager.instance;
             if (sm == null || sm.itemDictionary == null) return null;

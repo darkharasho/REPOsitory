@@ -1,6 +1,7 @@
 # Changelog
 
 ## 0.2.2
+- Fixed the game grinding to an apparent freeze on any machine where the Zero Gravity staff prefab can't be resolved from the item database (e.g. spawn/shop mods pruning items, or a custom level's bundles mid-load). The prefab scan walks the whole item dictionary and every `PrefabRef.Prefab` access is a synchronous bundle load; a failed scan used to retry every frame — it now retries at most every 2s. Prime suspect for the Aug 5 group-session freeze, which A/B testing pinned on this mod (any 0.2.x alongside item-pruning mods is affected).
 - Hardened the networked spawn path against the level-start race: a roster entry is skipped until the player's PlayerTumble (and its PhysGrabObject) is linked — previously `SemiAffect.Setup` threw inside Photon's event dispatch and leaked a half-initialized particle effect on each 4s retry. The event handler is now exception-guarded, and stale rosters are ignored when the mod is disabled locally or the run isn't in a floatable level.
 - Note: the Jun 23 multiplayer test of 0.2.1 froze on the loading screen because of Overstaffed ≤0.1.0's broken NetworkConnect transpiler (fixed in Overstaffed 0.2.0), not because of this mod. 0.2.1's netcode was sound; run this alongside Overstaffed ≥0.2.0.
 

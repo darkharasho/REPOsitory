@@ -26,5 +26,17 @@ namespace FaerieFlight
                 && physGrabObjectLinked
                 && !effectAlreadyActive;
         }
+
+        /// <summary>
+        /// May the prefab scan run right now? Each scan walks the whole item dictionary and
+        /// every <c>PrefabRef.Prefab</c> access is a synchronous bundle load, so an
+        /// unresolvable prefab (item removed by another mod, custom-level bundle mid-unload)
+        /// retried every frame grinds the game to an apparent freeze. Failed scans wait out
+        /// <paramref name="nextScanAllowedAt"/>; a resolved prefab never rescans.
+        /// </summary>
+        public static bool ShouldScanPrefab(bool prefabCached, float now, float nextScanAllowedAt)
+        {
+            return !prefabCached && now >= nextScanAllowedAt;
+        }
     }
 }
