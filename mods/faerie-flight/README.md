@@ -1,11 +1,12 @@
 # Faerie Flight
 
-> **⚠️ 0.2.2 and older can freeze the game in modded packs — update to 0.2.3.** If another
-> mod prunes shop items or a custom level unloads its bundles, 0.2.x's prefab scan could
-> retry every frame with synchronous bundle loads, grinding any machine running the mod to
-> a freeze (this is what "froze the lobby" in group sessions on 0.2.2). 0.2.3 bounds the
-> scan and is a drop-in update — get everyone in the lobby onto it. Also run Overstaffed
-> 0.2.0+ or none (older Overstaffed broke loading whenever any new mod was added).
+> **⚠️ 0.2.3 and older can freeze/black-screen the game during loading — update to 0.2.4.**
+> Older versions could touch the item database mid-scene-transition (a synchronous bundle
+> load), which can hang the main thread while creating a lobby, leaving to the menu, or
+> entering a level — especially in big modded packs. 0.2.4 defers all of that until the
+> level has fully finished loading and is a drop-in update — get everyone in the lobby onto
+> it. Also run Overstaffed 0.2.0+ or none (older Overstaffed broke loading whenever any new
+> mod was added).
 
 Sprout wings and drift. Faerie Flight keeps every player under the game's Zero Gravity
 Staff effect for the whole level — you tumble weightlessly, little wings appear, and you

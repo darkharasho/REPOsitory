@@ -93,6 +93,37 @@ namespace FaerieFlight.Tests
         }
     }
 
+    // The freeze family's real fix: NO float work (above all no item-DB prefab scans, which
+    // are synchronous bundle loads) until the level has fully finished loading. A scan fired
+    // during a scene transition — while REPOLib re-registers items and custom-level bundles
+    // are in flight — can block the main thread forever (black screen).
+    public class FloatWorkGateTests
+    {
+        [Fact]
+        public void LevelStillLoading_BlocksAllWork()
+        {
+            Assert.False(FloatGate.ShouldRunFloatWork(modEnabled: true, inFloatableLevel: true, levelFullyLoaded: false));
+        }
+
+        [Fact]
+        public void LevelLoaded_Runs()
+        {
+            Assert.True(FloatGate.ShouldRunFloatWork(modEnabled: true, inFloatableLevel: true, levelFullyLoaded: true));
+        }
+
+        [Fact]
+        public void ModDisabled_Blocks()
+        {
+            Assert.False(FloatGate.ShouldRunFloatWork(modEnabled: false, inFloatableLevel: true, levelFullyLoaded: true));
+        }
+
+        [Fact]
+        public void OutsideFloatableLevel_Blocks()
+        {
+            Assert.False(FloatGate.ShouldRunFloatWork(modEnabled: true, inFloatableLevel: false, levelFullyLoaded: true));
+        }
+    }
+
     // The game clamps grab strength to base (1f) while the grabber is tumbling, so under
     // permanent float Strength upgrades would be permanently dead. The compensation forces
     // a softened upgraded value back in via PhysGrabObject.OverrideGrabStrength — which the

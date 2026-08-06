@@ -40,6 +40,19 @@ namespace FaerieFlight
         }
 
         /// <summary>
+        /// May ANY float work run this frame? Above all this fences the prefab scan: every
+        /// PrefabRef.Prefab access is a synchronous bundle load, and one fired during a scene
+        /// transition — while REPOLib re-registers items and level bundles are in flight —
+        /// can block the main thread indefinitely (black screen). Nothing floats during a
+        /// loading screen anyway, so deferring until the level-load animation completes
+        /// costs nothing.
+        /// </summary>
+        public static bool ShouldRunFloatWork(bool modEnabled, bool inFloatableLevel, bool levelFullyLoaded)
+        {
+            return modEnabled && inFloatableLevel && levelFullyLoaded;
+        }
+
+        /// <summary>
         /// Grab strength to force onto the grabbed object while a floating player holds it,
         /// or null to leave vanilla physics alone. The game clamps a tumbling grabber to base
         /// strength (1f), killing Strength upgrades under permanent float; the object-level

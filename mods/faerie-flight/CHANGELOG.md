@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.2.4
+- **Fixes the black-screen hang 0.2.3 could still hit** (freeze on creating a lobby, leaving to menu, or entering a level). 0.2.3 throttled prefab-scan *retries* but still fired the first scan on the very frame a scene loaded — mid-transition, while REPOLib re-registers items and level bundles are in flight, that synchronous bundle access can block the main thread forever. All float work (scans, spawns, roster handling) now waits until the game's own level-load animation has completed, and the first scan additionally waits a 1.5s settle after every scene load. Verified against the live hang: the log's last line was the scene reset, with the scan's completion line never printed.
+
 ## 0.2.3
 - **Fixes the freeze shipped in 0.2.2** (and latent in all 0.2.x): on any machine where the Zero Gravity staff prefab can't be resolved from the item database (spawn/shop mods pruning items, or a custom level's bundles mid-load), the prefab scan re-walked the whole item dictionary every frame — and every `PrefabRef.Prefab` access is a synchronous bundle load — grinding the game to an apparent freeze. Failed scans now retry at most every 2s. This is what froze the Aug 5 group sessions (pinned on this mod by A/B testing). **All 0.2.x users should update.**
 - The staff prefab is now resolved by its exact item key first (one dictionary lookup); the fuzzy scan only runs as a fallback when the staff is renamed or replaced.

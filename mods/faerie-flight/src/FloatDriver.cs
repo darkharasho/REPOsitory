@@ -29,6 +29,7 @@ namespace FaerieFlight
         private const float AffectTime = 5f;            // SemiAffectZeroGravity doubles it -> ~10s effective
         private const float RefreshInterval = 4f;       // master re-broadcasts the float roster this often
         private const float PrefabScanCooldown = 2f;    // failed prefab scans retry at most this often
+        private const float PrefabScanSettleDelay = 1.5f; // no scan this soon after a scene load (bundles in flight)
         private const float GrabOverrideTime = 0.2f;    // grab-strength override window, refreshed each frame
         // Vanilla itemDictionary key of the Zero Gravity staff (Item.name). Tried first so the
         // usual case is one dictionary lookup instead of a full fuzzy walk.
@@ -56,6 +57,8 @@ namespace FaerieFlight
             AccessTools.FieldRefAccess<PlayerTumble, PhysGrabObject>("physGrabObject");
         private static readonly AccessTools.FieldRef<PhysGrabber, PhysGrabObject> GrabbedPhysGrabObjectRef =
             AccessTools.FieldRefAccess<PhysGrabber, PhysGrabObject>("grabbedPhysGrabObject");
+        private static readonly AccessTools.FieldRef<LoadingUI, bool> LevelAnimationCompletedRef =
+            AccessTools.FieldRefAccess<LoadingUI, bool>("levelAnimationCompleted");
         private static readonly AccessTools.FieldRef<SemiAffect, float> AffectTimerRef =
             AccessTools.FieldRefAccess<SemiAffect, float>("timer");
         private static readonly AccessTools.FieldRef<SemiAffect, float> AffectTimerTotalRef =
@@ -78,6 +81,13 @@ namespace FaerieFlight
         }
 
         private static bool IsAlive(PlayerAvatar pa) => !AvatarDeadSetRef(pa) && !AvatarIsDisabledRef(pa);
+
+        /// <summary>The level-load animation has finished — the game's own "safe to play" flag.</summary>
+        private static bool LevelFullyLoaded()
+        {
+            var ui = LoadingUI.instance;
+            return ui != null && LevelAnimationCompletedRef(ui);
+        }
 
         private void OnEnable()
         {
@@ -115,7 +125,10 @@ namespace FaerieFlight
             _searched = false;
             _active.Clear();
             _nextBroadcast = 0f;
-            _nextPrefabScan = 0f;
+            // Never scan on the load frame itself: this callback fires mid-transition, when
+            // REPOLib re-registration and level-bundle IO are still in flight — the window
+            // where a synchronous PrefabRef.Prefab load can block the main thread for good.
+            _nextPrefabScan = Time.time + PrefabScanSettleDelay;
             Plugin.Log.LogInfo($"[FloatDiag] scene '{scene.name}' loaded -> reset prefab + per-player state");
         }
 
@@ -123,7 +136,8 @@ namespace FaerieFlight
         {
             try
             {
-                bool active = Plugin.Enabled.Value && ShouldFloat();
+                bool active = FloatGate.ShouldRunFloatWork(
+                    Plugin.Enabled.Value, ShouldFloat(), LevelFullyLoaded());
                 GameObject? prefab = active ? GetAffectPrefab() : null;
                 var director = GameDirector.instance;
 
@@ -287,9 +301,10 @@ namespace FaerieFlight
                     photonEvent.Sender != PhotonNetwork.MasterClient.ActorNumber) return;
                 if (!(photonEvent.CustomData is int[] ids)) return;
 
+                if (!FloatGate.ShouldRunFloatWork(Plugin.Enabled.Value, ShouldFloat(), LevelFullyLoaded()))
+                    return; // stale roster (mid-load/transition) or locally disabled — next broadcast retries
                 bool enabled = Plugin.Enabled.Value;
                 bool floatable = ShouldFloat();
-                if (!enabled || !floatable) return; // stale roster (transition) or locally disabled
 
                 var prefab = GetAffectPrefab();
                 if (prefab == null) return;
