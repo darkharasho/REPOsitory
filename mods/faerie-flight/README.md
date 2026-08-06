@@ -27,13 +27,18 @@ normally cuts it during tumble).
 |---------|---------|--------------|
 | `Enabled` | `true` | Master on/off switch. Best set on the **host**, who drives the float for everyone. |
 | `Flashlight` | `true` | Keep your flashlight on while floating (the game normally kills it during tumble). |
+| `RestoreGrabUpgrades` | `true` | The game ignores Strength upgrades while tumbling, which permanent float would make permanent. Restores them (softened) while floating. Host-side; grabbing enemies keeps vanilla behavior. |
+| `StrengthSoftening` | `0.65` | How much to soften restored Strength upgrades (0 = full strength, 1 = square-root curve). Floating grabbers take the grab's recoil, so full strength can fling you. |
 
 ## Multiplayer
 
-Install it on **every** player in the lobby. Each client engages the effect on its own
-avatar, while the host (master client) simulates the floating physics for everyone — the
-host's `Enabled` setting governs the lobby. Dead players are left alone (no floating their
-head around).
+Install it on **every** player in the lobby for the full experience. Under the hood the
+effect is master-driven — the host simulates the float physics and steering for everyone
+(your movement input reaches the host through the game's own replication), and the host's
+`Enabled` setting governs the lobby. A player without the mod should still float and steer;
+what they lose is the local polish (the zero-gravity particles and the flashlight staying
+lit). Same-version-everywhere remains the recommended, tested setup. Dead players are left
+alone (no floating their head around).
 
 ## Install
 

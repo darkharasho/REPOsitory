@@ -29,6 +29,10 @@ namespace FaerieFlight
         private const float AffectTime = 5f;            // SemiAffectZeroGravity doubles it -> ~10s effective
         private const float RefreshInterval = 4f;       // master re-broadcasts the float roster this often
         private const float PrefabScanCooldown = 2f;    // failed prefab scans retry at most this often
+        private const float GrabOverrideTime = 0.2f;    // grab-strength override window, refreshed each frame
+        // Vanilla itemDictionary key of the Zero Gravity staff (Item.name). Tried first so the
+        // usual case is one dictionary lookup instead of a full fuzzy walk.
+        private const string StaffItemKey = "Item Staff Zero Gravity";
         // Photon custom event codes are 0..199 (200+ are Photon-internal). REPO's own Assembly-CSharp
         // RAISES on these custom codes: 199 = "you were kicked by the server" (OnEventReceivedCustom ->
         // OutroStart + leave room), 123 = kick-by-actor, 124 = ban-by-actor. Broadcasting on any of them
@@ -50,6 +54,8 @@ namespace FaerieFlight
             AccessTools.FieldRefAccess<PlayerAvatar, bool>("isLocal");
         private static readonly AccessTools.FieldRef<PlayerTumble, PhysGrabObject> TumblePhysGrabObjectRef =
             AccessTools.FieldRefAccess<PlayerTumble, PhysGrabObject>("physGrabObject");
+        private static readonly AccessTools.FieldRef<PhysGrabber, PhysGrabObject> GrabbedPhysGrabObjectRef =
+            AccessTools.FieldRefAccess<PhysGrabber, PhysGrabObject>("grabbedPhysGrabObject");
         private static readonly AccessTools.FieldRef<SemiAffect, float> AffectTimerRef =
             AccessTools.FieldRefAccess<SemiAffect, float>("timer");
         private static readonly AccessTools.FieldRef<SemiAffect, float> AffectTimerTotalRef =
@@ -132,6 +138,10 @@ namespace FaerieFlight
                 // live ones topped up so they never expire (no fall gap). No isTumbling thrash.
                 MaintainEffects();
 
+                // Physics is master-authoritative, so the strength restore only matters there.
+                if (SemiFunc.IsMasterClientOrSingleplayer())
+                    CompensateGrabStrength(director);
+
                 if (!SemiFunc.IsMultiplayer())
                 {
                     // Singleplayer: we are the only machine — spawn locally, no broadcast.
@@ -183,6 +193,34 @@ namespace FaerieFlight
             foreach (var kv in _active)
                 if (kv.Value != null) Object.Destroy(kv.Value.gameObject);
             _active.Clear();
+        }
+
+        /// <summary>
+        /// While tumbling, the game's grab-force code clamps the grabber's strength to base
+        /// (1f) — under permanent float that permanently disables Strength upgrades. The
+        /// object-level <c>PhysGrabObject.OverrideGrabStrength</c> is applied AFTER that
+        /// clamp, so forcing a softened upgraded value through it restores them. Master-only
+        /// (physics authority); FloatGate holds the decision rules.
+        /// </summary>
+        private void CompensateGrabStrength(GameDirector director)
+        {
+            if (!Plugin.RestoreGrabUpgrades.Value) return;
+            var list = director.PlayerList;
+            for (int i = 0; i < list.Count; i++)
+            {
+                var pa = list[i];
+                if (pa == null || pa.physGrabber == null) continue;
+                var grabbed = GrabbedPhysGrabObjectRef(pa.physGrabber);
+                if (grabbed == null) continue;
+
+                float? forced = FloatGate.CompensatedGrabStrength(
+                    effectActive: _active.TryGetValue(pa, out var effect) && effect != null,
+                    grabbedIsEnemy: grabbed.GetComponent<EnemyRigidbody>() != null,
+                    upgradedStrength: pa.physGrabber.grabStrength,
+                    softening: Plugin.StrengthSoftening.Value);
+                if (forced is float strength)
+                    grabbed.OverrideGrabStrength(strength, GrabOverrideTime);
+            }
         }
 
         /// <summary>Singleplayer spawn: bind the effect with local references.</summary>
@@ -304,42 +342,30 @@ namespace FaerieFlight
             var sm = StatsManager.instance;
             if (sm == null || sm.itemDictionary == null) return null;
 
-            int gravityItems = 0;
+            // Exact vanilla key first: one dictionary lookup, ≤3 prefab derefs. The fuzzy
+            // walk only runs when that misses (staff renamed/replaced by another mod).
             GameObject? affect = null;
-            foreach (var item in sm.itemDictionary.Values)
+            int gravityItems = 0;
+            bool exactHit = sm.itemDictionary.TryGetValue(StaffItemKey, out var staffItem)
+                && (affect = TryResolveAffect(staffItem)) != null;
+            if (affect == null)
             {
-                if (item == null || item.prefab == null) continue;
-                string name = (item.itemName ?? "").ToLowerInvariant();
-                if (!name.Contains("gravity")) continue;
-                gravityItems++;
-
-                GameObject itemGO;
-                try { itemGO = item.prefab.Prefab; } catch { continue; }
-                if (itemGO == null) continue;
-
-                PrefabRef? projRef = ExtractProjectileRef(itemGO);
-                if (projRef == null) continue;
-
-                GameObject projGO;
-                try { projGO = projRef.Prefab; } catch { continue; }
-                if (projGO == null) continue;
-
-                var aoe = projGO.GetComponentInChildren<SemiAreaOfEffect>(true);
-                if (aoe == null || aoe.semiAffectPrefab == null) continue;
-
-                GameObject affectGO;
-                try { affectGO = aoe.semiAffectPrefab.Prefab; } catch { continue; }
-                if (affectGO != null && affectGO.GetComponent<SemiAffectZeroGravity>() != null)
+                foreach (var item in sm.itemDictionary.Values)
                 {
-                    affect = affectGO;
-                    break;
+                    if (item == null || item.prefab == null) continue;
+                    string name = (item.itemName ?? "").ToLowerInvariant();
+                    if (!name.Contains("gravity")) continue;
+                    gravityItems++;
+                    affect = TryResolveAffect(item);
+                    if (affect != null) break;
                 }
             }
 
             if (!_searched || affect != null)
             {
                 _searched = true;
-                Plugin.Log.LogInfo($"[FloatDiag] prefab via item DB: gravityItems={gravityItems} -> {(affect != null ? "FOUND" : "not yet")}");
+                string via = exactHit ? "via staff key" : $"via item DB: gravityItems={gravityItems}";
+                Plugin.Log.LogInfo($"[FloatDiag] prefab {via} -> {(affect != null ? "FOUND" : "not yet")}");
             }
             _affectPrefab = affect;
             return _affectPrefab;
@@ -350,6 +376,35 @@ namespace FaerieFlight
         {
             var staff = itemGO.GetComponent<ItemStaffZeroGravity>();
             return staff != null ? staff.projectilePrefab : null;
+        }
+
+        /// <summary>
+        /// Resolve one item's staff -> projectile -> affect-prefab chain, or null. Every
+        /// .Prefab access is a synchronous bundle load and may throw on a broken bundle.
+        /// </summary>
+        private static GameObject? TryResolveAffect(Item? item)
+        {
+            if (item == null || item.prefab == null) return null;
+
+            GameObject itemGO;
+            try { itemGO = item.prefab.Prefab; } catch { return null; }
+            if (itemGO == null) return null;
+
+            PrefabRef? projRef = ExtractProjectileRef(itemGO);
+            if (projRef == null) return null;
+
+            GameObject projGO;
+            try { projGO = projRef.Prefab; } catch { return null; }
+            if (projGO == null) return null;
+
+            var aoe = projGO.GetComponentInChildren<SemiAreaOfEffect>(true);
+            if (aoe == null || aoe.semiAffectPrefab == null) return null;
+
+            GameObject affectGO;
+            try { affectGO = aoe.semiAffectPrefab.Prefab; } catch { return null; }
+            return affectGO != null && affectGO.GetComponent<SemiAffectZeroGravity>() != null
+                ? affectGO
+                : null;
         }
 
         private void MaybeLog(GameDirector director)

@@ -12,6 +12,8 @@ namespace FaerieFlight
 
         internal static ConfigEntry<bool> Enabled = null!;
         internal static ConfigEntry<bool> Flashlight = null!;
+        internal static ConfigEntry<bool> RestoreGrabUpgrades = null!;
+        internal static ConfigEntry<float> StrengthSoftening = null!;
 
         private void Awake()
         {
@@ -23,6 +25,16 @@ namespace FaerieFlight
             Flashlight = Config.Bind("General", "Flashlight", true,
                 "Keep your flashlight on while floating. The game normally turns it off during tumble; " +
                 "since it's a dark game, this keeps it lit.");
+            RestoreGrabUpgrades = Config.Bind("General", "RestoreGrabUpgrades", true,
+                "The game ignores Strength upgrades while a player is tumbling, so permanent float " +
+                "would leave them permanently dead. Restores them (softened) while floating. " +
+                "Host-side setting; grabbing enemies keeps vanilla behavior either way.");
+            StrengthSoftening = Config.Bind("General", "StrengthSoftening", 0.65f,
+                new ConfigDescription(
+                    "How much to soften restored Strength upgrades while floating: 0 = full upgrade " +
+                    "strength, 1 = square-root curve. Floating grabbers take the grab's recoil, so " +
+                    "full strength can fling you.",
+                    new AcceptableValueRange<float>(0f, 1f)));
 
             new Harmony(PluginInfo.PLUGIN_GUID).PatchAll();
             gameObject.AddComponent<FloatDriver>();

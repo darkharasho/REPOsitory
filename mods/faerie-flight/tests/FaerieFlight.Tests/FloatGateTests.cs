@@ -92,4 +92,63 @@ namespace FaerieFlight.Tests
             Assert.True(FloatGate.ShouldScanPrefab(prefabCached: false, now: 12f, nextScanAllowedAt: 12f));
         }
     }
+
+    // The game clamps grab strength to base (1f) while the grabber is tumbling, so under
+    // permanent float Strength upgrades would be permanently dead. The compensation forces
+    // a softened upgraded value back in via PhysGrabObject.OverrideGrabStrength — which the
+    // game applies AFTER its tumble clamp. Null means "leave vanilla alone".
+    public class GrabCompensationTests
+    {
+        // Not floating this player -> vanilla physics untouched.
+        [Fact]
+        public void NotFloating_LeavesVanilla()
+        {
+            Assert.Null(FloatGate.CompensatedGrabStrength(effectActive: false, grabbedIsEnemy: false, upgradedStrength: 3f, softening: 0.65f));
+        }
+
+        // Grabbing an enemy: keep the vanilla tumble clamp (base strength) — restoring
+        // upgrades would let floaters drag enemies far harder than vanilla ever allows.
+        [Fact]
+        public void GrabbingEnemy_LeavesVanilla()
+        {
+            Assert.Null(FloatGate.CompensatedGrabStrength(effectActive: true, grabbedIsEnemy: true, upgradedStrength: 3f, softening: 0.65f));
+        }
+
+        // No Strength upgrades: the override would equal the clamp — skip the call.
+        [Fact]
+        public void NoUpgrades_LeavesVanilla()
+        {
+            Assert.Null(FloatGate.CompensatedGrabStrength(effectActive: true, grabbedIsEnemy: false, upgradedStrength: 1f, softening: 0.65f));
+        }
+
+        // Softening 0 restores the full upgraded strength.
+        [Fact]
+        public void SofteningZero_RestoresFullStrength()
+        {
+            Assert.Equal(3f, FloatGate.CompensatedGrabStrength(true, false, upgradedStrength: 3f, softening: 0f)!.Value, 4);
+        }
+
+        // Softening 1 is the full square-root curve.
+        [Fact]
+        public void SofteningOne_SqrtCurve()
+        {
+            Assert.Equal(2f, FloatGate.CompensatedGrabStrength(true, false, upgradedStrength: 4f, softening: 1f)!.Value, 4);
+        }
+
+        // Default-ish midpoint: lerp(S, sqrt(S), softening).
+        [Fact]
+        public void Softening_LerpsTowardSqrt()
+        {
+            // S=3: 3 + (sqrt(3)-3)*0.65 = 2.1758...
+            Assert.Equal(2.1758f, FloatGate.CompensatedGrabStrength(true, false, upgradedStrength: 3f, softening: 0.65f)!.Value, 3);
+        }
+
+        // Out-of-range softening is clamped to [0,1], not extrapolated.
+        [Fact]
+        public void Softening_Clamped()
+        {
+            Assert.Equal(2f, FloatGate.CompensatedGrabStrength(true, false, upgradedStrength: 4f, softening: 1.5f)!.Value, 4);
+            Assert.Equal(4f, FloatGate.CompensatedGrabStrength(true, false, upgradedStrength: 4f, softening: -0.5f)!.Value, 4);
+        }
+    }
 }

@@ -38,5 +38,27 @@ namespace FaerieFlight
         {
             return !prefabCached && now >= nextScanAllowedAt;
         }
+
+        /// <summary>
+        /// Grab strength to force onto the grabbed object while a floating player holds it,
+        /// or null to leave vanilla physics alone. The game clamps a tumbling grabber to base
+        /// strength (1f), killing Strength upgrades under permanent float; the object-level
+        /// override is applied AFTER that clamp, so it restores them. Softened toward the
+        /// square root because a tumbling grabber also takes the grab's recoil — full
+        /// upgraded strength flings the floater. Enemies keep the vanilla clamp: restored
+        /// strength would let floaters drag them harder than vanilla ever allows.
+        /// </summary>
+        public static float? CompensatedGrabStrength(
+            bool effectActive,
+            bool grabbedIsEnemy,
+            float upgradedStrength,
+            float softening)
+        {
+            if (!effectActive || grabbedIsEnemy) return null;
+            if (upgradedStrength <= 1f) return null; // override would equal the vanilla clamp
+            float t = softening < 0f ? 0f : (softening > 1f ? 1f : softening);
+            float sqrt = (float)System.Math.Sqrt(upgradedStrength);
+            return upgradedStrength + (sqrt - upgradedStrength) * t;
+        }
     }
 }
