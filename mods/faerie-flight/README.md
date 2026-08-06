@@ -1,12 +1,11 @@
 # Faerie Flight
 
-> **⚠️ WIP — 0.2.2 is awaiting a proper multiplayer test.** Earlier versions had real
-> multiplayer bugs (0.1.x desync, 0.2.0 kicked clients mid-load), and 0.2.1's retest was
-> invalidated by an unrelated mod-pack bug (Overstaffed ≤0.1.0's broken NetworkConnect
-> patch froze loading whenever any new mod was added). The netcode has since been audited
-> against the game's own staff-effect flow and hardened, but until a clean lobby test
-> confirms it, treat multiplayer as unverified. If you try it: everyone on 0.2.2, and run
-> Overstaffed 0.2.0 or newer (or no Overstaffed at all).
+> **⚠️ 0.2.2 and older can freeze the game in modded packs — update to 0.2.3.** If another
+> mod prunes shop items or a custom level unloads its bundles, 0.2.x's prefab scan could
+> retry every frame with synchronous bundle loads, grinding any machine running the mod to
+> a freeze (this is what "froze the lobby" in group sessions on 0.2.2). 0.2.3 bounds the
+> scan and is a drop-in update — get everyone in the lobby onto it. Also run Overstaffed
+> 0.2.0+ or none (older Overstaffed broke loading whenever any new mod was added).
 
 Sprout wings and drift. Faerie Flight keeps every player under the game's Zero Gravity
 Staff effect for the whole level — you tumble weightlessly, little wings appear, and you
