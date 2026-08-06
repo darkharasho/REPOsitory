@@ -67,6 +67,11 @@ namespace FaerieFlight
         private GameObject? _affectPrefab;
         private bool _searched;
         private float _nextPrefabScan;
+        // Whether our IOnEventCallback is currently registered with PUN. Never touch
+        // PhotonNetwork before the game does (see FloatGate.PhotonCallbackDesired) — this
+        // flag guarantees Remove is only ever called after a successful (post-game-init)
+        // Add.
+        private bool _photonCallbackRegistered;
         // The live effect we spawned per player. Key is the PlayerAvatar so it works for both the
         // networked (resolved from a view ID) and singleplayer paths.
         private readonly Dictionary<PlayerAvatar, SemiAffect> _active = new Dictionary<PlayerAvatar, SemiAffect>();
@@ -102,13 +107,30 @@ namespace FaerieFlight
                 return;
             }
             SceneManager.sceneLoaded += OnSceneLoaded;
-            PhotonNetwork.AddCallbackTarget(this);
+            // Deliberately NO PhotonNetwork.AddCallbackTarget here: this runs at BepInEx
+            // boot, and the first PhotonNetwork touch force-runs PUN's static init before
+            // the game's own Photon setup — freezing lobby creation at 100% CPU (bisected
+            // live 2026-08-05). Registration is lazy, in Update, once floating is active.
         }
 
         private void OnDisable()
         {
             SceneManager.sceneLoaded -= OnSceneLoaded;
+            UnregisterPhotonCallback();
+        }
+
+        private void RegisterPhotonCallback()
+        {
+            if (_photonCallbackRegistered) return;
+            PhotonNetwork.AddCallbackTarget(this);
+            _photonCallbackRegistered = true;
+        }
+
+        private void UnregisterPhotonCallback()
+        {
+            if (!_photonCallbackRegistered) return;
             PhotonNetwork.RemoveCallbackTarget(this);
+            _photonCallbackRegistered = false;
         }
 
         /// <summary>
@@ -144,9 +166,15 @@ namespace FaerieFlight
                 if (!active || prefab == null || director == null)
                 {
                     // Disabled / menu / between levels: tear down anything still alive.
+                    // Dropping the Photon registration here also keeps us out of PUN's
+                    // way during every transition and lobby create.
+                    UnregisterPhotonCallback();
                     if (_active.Count > 0) DestroyAllEffects();
                     return;
                 }
+
+                if (FloatGate.PhotonCallbackDesired(active, SemiFunc.IsMultiplayer()))
+                    RegisterPhotonCallback();
 
                 // Maintenance (runs on every machine): drop dead/ineligible effects and keep the
                 // live ones topped up so they never expire (no fall gap). No isTumbling thrash.

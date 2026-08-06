@@ -124,6 +124,34 @@ namespace FaerieFlight.Tests
         }
     }
 
+    // Touching PhotonNetwork at plugin boot force-runs PUN's static init long before the
+    // game configures Photon, wedging lobby creation in a 100%-CPU connect spin (bisected
+    // live, 2026-08-05). The callback target may therefore only exist while we're actively
+    // floating in multiplayer — by then the game itself initialized Photon long ago.
+    public class PhotonCallbackGateTests
+    {
+        [Fact]
+        public void ActiveMultiplayer_WantsCallback()
+        {
+            Assert.True(FloatGate.PhotonCallbackDesired(floatWorkActive: true, isMultiplayer: true));
+        }
+
+        // Menus, loading screens, disabled — never registered, so boot/menu frames can
+        // never be the first PhotonNetwork touch.
+        [Fact]
+        public void Inactive_NoCallback()
+        {
+            Assert.False(FloatGate.PhotonCallbackDesired(floatWorkActive: false, isMultiplayer: true));
+        }
+
+        // Singleplayer never needs the roster listener.
+        [Fact]
+        public void Singleplayer_NoCallback()
+        {
+            Assert.False(FloatGate.PhotonCallbackDesired(floatWorkActive: true, isMultiplayer: false));
+        }
+    }
+
     // The game clamps grab strength to base (1f) while the grabber is tumbling, so under
     // permanent float Strength upgrades would be permanently dead. The compensation forces
     // a softened upgraded value back in via PhysGrabObject.OverrideGrabStrength — which the

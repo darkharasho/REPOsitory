@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.5
+- **THE lobby-freeze fix.** Live bisection (solo repro, control mod, and two single-mechanism builds) pinned the freeze on registering our Photon event callback at plugin boot: the first `PhotonNetwork` touch force-runs PUN's static init before REPO's own Photon setup (the game ships a modified PUN and configures region/version/AppId itself at lobby time), leaving lobby creation spinning a half-configured connection at 100% CPU. The callback is now registered lazily — only while floating is actually active in a loaded multiplayer level (by which point the game initialized Photon long ago) — and dropped again on every transition. A client registering a frame late just catches the next 4s roster broadcast.
+- The 0.2.3/0.2.4 hardening (bounded scans, loading gate, settle delay) stays: those windows were real, but the boot-time Photon touch was the trigger actually freezing lobbies.
+- (0.2.4 was never published; its changes ship here.)
+
 ## 0.2.4
 - **Fixes the black-screen hang 0.2.3 could still hit** (freeze on creating a lobby, leaving to menu, or entering a level). 0.2.3 throttled prefab-scan *retries* but still fired the first scan on the very frame a scene loaded — mid-transition, while REPOLib re-registers items and level bundles are in flight, that synchronous bundle access can block the main thread forever. All float work (scans, spawns, roster handling) now waits until the game's own level-load animation has completed, and the first scan additionally waits a 1.5s settle after every scene load. Verified against the live hang: the log's last line was the scene reset, with the scan's completion line never printed.
 

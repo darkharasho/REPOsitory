@@ -53,6 +53,20 @@ namespace FaerieFlight
         }
 
         /// <summary>
+        /// Should the Photon event-callback target be registered right now? Calling ANY
+        /// PhotonNetwork static from plugin boot force-runs PUN's static init before the
+        /// game configures Photon (REPO ships a modified PUN and sets region/version/AppId
+        /// itself at lobby time) — which wedges lobby creation in a 100%-CPU connect spin.
+        /// Registering only while float work is active in multiplayer guarantees the game
+        /// touched Photon first; a client registering a frame late just catches the next
+        /// 4s roster broadcast.
+        /// </summary>
+        public static bool PhotonCallbackDesired(bool floatWorkActive, bool isMultiplayer)
+        {
+            return floatWorkActive && isMultiplayer;
+        }
+
+        /// <summary>
         /// Grab strength to force onto the grabbed object while a floating player holds it,
         /// or null to leave vanilla physics alone. The game clamps a tumbling grabber to base
         /// strength (1f), killing Strength upgrades under permanent float; the object-level
