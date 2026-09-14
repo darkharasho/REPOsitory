@@ -14,6 +14,7 @@ namespace FaerieFlight
         internal static ConfigEntry<bool> Flashlight = null!;
         internal static ConfigEntry<bool> RestoreGrabUpgrades = null!;
         internal static ConfigEntry<float> StrengthSoftening = null!;
+        internal static ConfigEntry<bool> DisableWallClimbWhileFloating = null!;
 
         private void Awake()
         {
@@ -35,6 +36,12 @@ namespace FaerieFlight
                     "strength, 1 = square-root curve. Floating grabbers take the grab's recoil, so " +
                     "full strength can fling you.",
                     new AcceptableValueRange<float>(0f, 1f)));
+
+            DisableWallClimbWhileFloating = Config.Bind("General", "DisableWallClimbWhileFloating", true,
+                "The Tumble Climb upgrade turns any wall grab into a climb; while floating, the " +
+                "climb spring yanks you out of the air to the grab point (feels like being dragged " +
+                "down to the ground). Suppresses climbing while you float — wall grabs show the " +
+                "game's 'disabled' zap instead. Per-player setting; turn off to keep wall-climbing.");
 
             new Harmony(PluginInfo.PLUGIN_GUID).PatchAll();
             gameObject.AddComponent<FloatDriver>();

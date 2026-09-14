@@ -31,6 +31,8 @@ namespace FaerieFlight
         private const float PrefabScanCooldown = 2f;    // failed prefab scans retry at most this often
         private const float PrefabScanSettleDelay = 1.5f; // no scan this soon after a scene load (bundles in flight)
         private const float GrabOverrideTime = 0.2f;    // grab-strength override window, refreshed each frame
+        private const float ClimbSuppressTime = 0.5f;   // climb kill-switch window, refreshed each frame
+        private const float MissingEffectRebroadcastDelay = 0.25f; // debounce before an early roster re-send
         // Vanilla itemDictionary key of the Zero Gravity staff (Item.name). Tried first so the
         // usual case is one dictionary lookup instead of a full fuzzy walk.
         private const string StaffItemKey = "Item Staff Zero Gravity";
@@ -180,6 +182,10 @@ namespace FaerieFlight
                 // live ones topped up so they never expire (no fall gap). No isTumbling thrash.
                 MaintainEffects();
 
+                // Climb entry is decided on the grabbing player's own machine, so every
+                // machine suppresses just its own local player.
+                SuppressClimbWhileFloating();
+
                 // Physics is master-authoritative, so the strength restore only matters there.
                 if (SemiFunc.IsMasterClientOrSingleplayer())
                     CompensateGrabStrength(director);
@@ -192,7 +198,12 @@ namespace FaerieFlight
                 else if (SemiFunc.IsMasterClientOrSingleplayer())
                 {
                     // Host: broadcast the float roster; every client (incl. us) spawns on receipt.
+                    // A spawnable player with no effect (just revived — mid-air at the head's
+                    // position, with vanilla gravity) pulls the broadcast forward so they don't
+                    // plummet for the rest of the 4s interval.
                     float now = Time.time;
+                    _nextBroadcast = FloatGate.NextBroadcastTime(
+                        _nextBroadcast, now, AnyEligiblePlayerMissingEffect(director), MissingEffectRebroadcastDelay);
                     if (now >= _nextBroadcast)
                     {
                         _nextBroadcast = now + RefreshInterval;
@@ -228,6 +239,51 @@ namespace FaerieFlight
             }
             if (drop != null)
                 foreach (var pa in drop) _active.Remove(pa);
+        }
+
+        /// <summary>
+        /// The Tumble Climb upgrade turns any grab that lands on static geometry into a
+        /// climb — and under permanent float everyone is always tumbling, so every wall
+        /// grab hijacks the floater: the climb spring out-pulls the zero-grav drift and
+        /// yanks them to the grab point ("dragged down to the ground"). Refreshing the
+        /// game's own timed climb kill-switch gates climb entry and detaches an
+        /// in-progress climb; the timer just lapses when the effect ends. FloatGate holds
+        /// the decision rule.
+        /// </summary>
+        private void SuppressClimbWhileFloating()
+        {
+            foreach (var kv in _active)
+            {
+                var pa = kv.Key;
+                if (pa == null || kv.Value == null || !AvatarIsLocalRef(pa)) continue;
+                if (FloatGate.ShouldSuppressClimb(Plugin.DisableWallClimbWhileFloating.Value, localEffectActive: true)
+                    && pa.physGrabber != null)
+                {
+                    pa.physGrabber.OverrideDisableSpecialGrabPowers(ClimbSuppressTime);
+                }
+                return;
+            }
+        }
+
+        /// <summary>
+        /// A revived player spawns at their death head's position — mid-air whenever a
+        /// floating teammate carried the head — and has vanilla gravity until a roster
+        /// broadcast re-floats them. True when any player could be floated right now
+        /// (alive, tumble linked) but has no live effect, so the master can pull the next
+        /// broadcast forward instead of letting them fall for up to 4 seconds.
+        /// </summary>
+        private bool AnyEligiblePlayerMissingEffect(GameDirector director)
+        {
+            var list = director.PlayerList;
+            for (int i = 0; i < list.Count; i++)
+            {
+                var pa = list[i];
+                if (pa == null || !IsAlive(pa)) continue;
+                var tumble = AvatarTumbleRef(pa);
+                if (tumble == null || TumblePhysGrabObjectRef(tumble) == null) continue;
+                if (!_active.TryGetValue(pa, out var effect) || effect == null) return true;
+            }
+            return false;
         }
 
         private void DestroyAllEffects()

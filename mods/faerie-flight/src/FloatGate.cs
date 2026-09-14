@@ -67,6 +67,45 @@ namespace FaerieFlight
         }
 
         /// <summary>
+        /// Should the local player's Tumble Climb be suppressed right now? Under permanent
+        /// float everyone is always tumbling, so every grab that lands on static geometry
+        /// engages the climb — whose spring (strength 14+, scaling with the upgrade level)
+        /// overpowers the zero-grav drift (8) and yanks the floater out of the air to the
+        /// grab point, then dumps them with a 3s input-disable when stamina empties.
+        /// Suppression refreshes the game's own climb kill-switch
+        /// (<c>PhysGrabber.OverrideDisableSpecialGrabPowers</c>, the timer enemies use),
+        /// which gates climb entry and detaches an in-progress climb. Vanilla never hits
+        /// this because tumble is brief; the config keeps it available for players who
+        /// want wall-anchoring anyway.
+        /// </summary>
+        public static bool ShouldSuppressClimb(bool disableClimbWhileFloating, bool localEffectActive)
+        {
+            return disableClimbWhileFloating && localEffectActive;
+        }
+
+        /// <summary>
+        /// When should the master's next float-roster broadcast fire? Normally at
+        /// <paramref name="scheduledAt"/> (the 4s refresh cadence) — but a revived player
+        /// spawns at their death head's position (mid-air when a floating teammate carried
+        /// it) with vanilla gravity, so waiting out the remainder of the interval drops
+        /// them to the floor. As soon as an eligible player is missing an effect the
+        /// broadcast is pulled forward to <paramref name="now"/> +
+        /// <paramref name="missingEffectDelay"/>: a short debounce that coalesces mass
+        /// revives and lets the revive teleport settle, while never pushing an
+        /// already-sooner (or overdue) schedule back.
+        /// </summary>
+        public static float NextBroadcastTime(
+            float scheduledAt,
+            float now,
+            bool eligiblePlayerMissingEffect,
+            float missingEffectDelay)
+        {
+            if (!eligiblePlayerMissingEffect) return scheduledAt;
+            float pulledForward = now + missingEffectDelay;
+            return pulledForward < scheduledAt ? pulledForward : scheduledAt;
+        }
+
+        /// <summary>
         /// Grab strength to force onto the grabbed object while a floating player holds it,
         /// or null to leave vanilla physics alone. The game clamps a tumbling grabber to base
         /// strength (1f), killing Strength upgrades under permanent float; the object-level

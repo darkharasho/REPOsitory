@@ -152,6 +152,76 @@ namespace FaerieFlight.Tests
         }
     }
 
+    // The Tumble Climb upgrade turns any grab that lands on static geometry into a climb —
+    // and under permanent float everyone is always tumbling, so every wall grab hijacks the
+    // floater: the climb spring (strength 14+, scaling with upgrade level) overpowers the
+    // 8-force zero-grav drift and yanks them to the grab point ("randomly dragged down to
+    // the ground" — group-confirmed trigger, 2026-08-06). While the local player's effect is
+    // live we refresh the game's own climb kill-switch
+    // (PhysGrabber.OverrideDisableSpecialGrabPowers, the timer enemies use), which gates
+    // climb entry AND detaches an in-progress climb. Vanilla never hits this because tumble
+    // is brief.
+    public class ClimbSuppressionTests
+    {
+        [Fact]
+        public void FloatingWithConfigOn_Suppresses()
+        {
+            Assert.True(FloatGate.ShouldSuppressClimb(disableClimbWhileFloating: true, localEffectActive: true));
+        }
+
+        // No live effect on the local player (dead, between levels, mod disabled) -> the
+        // upgrade must work exactly as vanilla.
+        [Fact]
+        public void NotFloating_LeavesClimbAlone()
+        {
+            Assert.False(FloatGate.ShouldSuppressClimb(disableClimbWhileFloating: true, localEffectActive: false));
+        }
+
+        // Players who want wall-climb chaos while floating can keep it via config.
+        [Fact]
+        public void ConfigOff_LeavesClimbAlone()
+        {
+            Assert.False(FloatGate.ShouldSuppressClimb(disableClimbWhileFloating: false, localEffectActive: true));
+        }
+    }
+
+    // Revived players spawn at their death head's position (ReviveRPC teleports the body
+    // there) — under permanent float that's wherever the floating reviver carried the head,
+    // i.e. mid-air — and then waited out the remainder of the 4s roster interval with
+    // vanilla gravity, plummeting to the floor (log-verified 2026-08-06: every
+    // alive-without-effect window followed a ReviveRPC burst, incl. a 6-player mass revive).
+    // The master now pulls the next broadcast forward as soon as an eligible player is
+    // missing an effect; a short debounce coalesces mass revives and lets the revive
+    // teleport settle.
+    public class RebroadcastTests
+    {
+        [Fact]
+        public void NobodyMissing_KeepsSchedule()
+        {
+            Assert.Equal(13.5f, FloatGate.NextBroadcastTime(scheduledAt: 13.5f, now: 10f, eligiblePlayerMissingEffect: false, missingEffectDelay: 0.25f));
+        }
+
+        [Fact]
+        public void MissingEffect_PullsBroadcastForward()
+        {
+            Assert.Equal(10.25f, FloatGate.NextBroadcastTime(scheduledAt: 13.5f, now: 10f, eligiblePlayerMissingEffect: true, missingEffectDelay: 0.25f));
+        }
+
+        // A broadcast already due sooner than the debounce must not be pushed BACK.
+        [Fact]
+        public void MissingButBroadcastImminent_KeepsEarlierSchedule()
+        {
+            Assert.Equal(10.1f, FloatGate.NextBroadcastTime(scheduledAt: 10.1f, now: 10f, eligiblePlayerMissingEffect: true, missingEffectDelay: 0.25f));
+        }
+
+        // Overdue schedule (broadcast fires this frame) stays overdue.
+        [Fact]
+        public void MissingAndOverdue_FiresNow()
+        {
+            Assert.Equal(9.9f, FloatGate.NextBroadcastTime(scheduledAt: 9.9f, now: 10f, eligiblePlayerMissingEffect: true, missingEffectDelay: 0.25f));
+        }
+    }
+
     // The game clamps grab strength to base (1f) while the grabber is tumbling, so under
     // permanent float Strength upgrades would be permanently dead. The compensation forces
     // a softened upgraded value back in via PhysGrabObject.OverrideGrabStrength — which the
