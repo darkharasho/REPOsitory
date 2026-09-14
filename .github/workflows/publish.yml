@@ -1,0 +1,48 @@
+name: Publish
+
+# Tag a mod release as <mod-dir>-v<version>, e.g. upgrade-limiter-v0.4.4. The version must match
+# mods/<mod-dir>/manifest.json. Builds on the self-hosted runner (which has the game install)
+# and publishes the zip to Thunderstore, keeping the categories the package already has there.
+on:
+  push:
+    tags: ["*-v*"]
+
+jobs:
+  publish:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve mod and version from tag
+        run: |
+          mod="${GITHUB_REF_NAME%-v*}"
+          version="${GITHUB_REF_NAME##*-v}"
+          manifest="mods/$mod/manifest.json"
+          if [ ! -f "$manifest" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME: no $manifest"
+            exit 1
+          fi
+          manifest_version="$(python3 -c "import json; print(json.load(open('$manifest'))['version_number'])")"
+          if [ "$manifest_version" != "$version" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match $manifest version $manifest_version"
+            exit 1
+          fi
+          name="$(python3 -c "import json; print(json.load(open('$manifest'))['name'])")"
+          echo "MOD=$mod" >> "$GITHUB_ENV"
+          echo "ZIP=builds/$name-$version.zip" >> "$GITHUB_ENV"
+
+      - name: Build and package
+        working-directory: mods/${{ env.MOD }}
+        env:
+          GAME_DIR: /var/mnt/data/SteamLibrary/steamapps/common/REPO
+        run: ./package.sh
+
+      - name: Publish to Thunderstore
+        env:
+          THUNDERSTORE_TOKEN: ${{ secrets.THUNDERSTORE_TOKEN }}
+        run: scripts/thunderstore-publish.sh "$ZIP" --community repo
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ github.ref_name }}
+          path: ${{ env.ZIP }}

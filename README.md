@@ -29,3 +29,13 @@ mods/
 ```
 
 Each mod folder is self-contained: `.csproj`, `manifest.json`, `package.sh`, source, and docs.
+
+## Publishing
+
+Bump `version_number` in the mod's `manifest.json`, commit, then tag `<mod-dir>-v<version>` and push the tag:
+
+```
+git tag upgrade-limiter-v0.4.4 && git push origin upgrade-limiter-v0.4.4
+```
+
+`.github/workflows/publish.yml` builds that mod on the self-hosted runner and publishes it to Thunderstore with `scripts/thunderstore-publish.sh`, using the `THUNDERSTORE_TOKEN` repo secret. It keeps the categories the package already has on Thunderstore and skips versions that are already published. A brand-new mod's first upload needs `--categories`, so publish that one by hand or add the flag.
