@@ -1,0 +1,9 @@
+{
+    "name": "FullHeal",
+    "version_number": "1.0.0",
+    "website_url": "https://github.com/darkharasho/REPOsitory",
+    "description": "A FullHealth replacement: restores health at the start of each level and on revival. Same config, but heals on the main thread so it no longer freezes the game.",
+    "dependencies": [
+        "BepInEx-BepInExPack-5.4.2100"
+    ]
+}

@@ -17,6 +17,7 @@ Monorepo for my [R.E.P.O.](https://store.steampowered.com/app/3241660/REPO/) mod
 | [ForcedFriendship](mods/forced-friendship) | Take damage over time when you stray too far from other players; the farther away, the faster it ticks. |
 | [ModdedPurchaseKeeper](mods/modded-purchase-keeper) | Fixes modded (REPOLib) shop items being bought but not appearing in the level. |
 | [InfiniteEnergy](mods/infinite-energy) | Infinite battery for weapons and items — guns, melee durability, drones and tools never run dry. Host-only. |
+| [FullHeal](mods/full-heal) | Restores health at the start of each level and on revival. A drop-in FullHealth replacement (same config) that no longer freezes the game. |
 
 ## Layout
 
@@ -33,6 +34,7 @@ mods/
   forced-friendship/   # ForcedFriendship BepInEx plugin
   modded-purchase-keeper/  # ModdedPurchaseKeeper BepInEx plugin
   infinite-energy/     # InfiniteEnergy BepInEx plugin
+  full-heal/           # FullHeal BepInEx plugin
   purchase-diag/       # PurchaseDiag diagnostic plugin (not published)
 .github/workflows/     # Per-mod build workflows (path-filtered)
 ```

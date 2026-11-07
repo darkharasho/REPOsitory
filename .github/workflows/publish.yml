@@ -10,6 +10,8 @@ on:
 jobs:
   publish:
     runs-on: self-hosted
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -29,6 +31,8 @@ jobs:
           fi
           name="$(python3 -c "import json; print(json.load(open('$manifest'))['name'])")"
           echo "MOD=$mod" >> "$GITHUB_ENV"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "TITLE=$name $version" >> "$GITHUB_ENV"
           echo "ZIP=builds/$name-$version.zip" >> "$GITHUB_ENV"
           # First upload of a new mod needs categories: mods/<mod>/thunderstore-categories (a,b,c).
           if [ -f "mods/$mod/thunderstore-categories" ]; then
@@ -45,6 +49,18 @@ jobs:
         env:
           THUNDERSTORE_TOKEN: ${{ secrets.THUNDERSTORE_TOKEN }}
         run: scripts/thunderstore-publish.sh "$ZIP" --community repo ${CATEGORIES:+--categories "$CATEGORIES"}
+
+      - name: Release notes from CHANGELOG
+        run: |
+          awk -v v="## $VERSION" '$0==v{f=1;next} /^## /{f=0} f' "mods/$MOD/CHANGELOG.md" > release-notes.md
+          printf '\nInstall `%s` with a mod manager (it is a Thunderstore package).\n' "$(basename "$ZIP")" >> release-notes.md
+
+      - name: GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ env.TITLE }}
+          body_path: release-notes.md
+          files: ${{ env.ZIP }}
 
       - uses: actions/upload-artifact@v4
         with:
