@@ -1,0 +1,28 @@
+name: Build InfiniteEnergy
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "mods/infinite-energy/**"
+      - ".github/workflows/build-infinite-energy.yml"
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "mods/infinite-energy/**"
+      - ".github/workflows/build-infinite-energy.yml"
+
+jobs:
+  build:
+    runs-on: self-hosted
+    defaults:
+      run:
+        working-directory: mods/infinite-energy
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: |
+          dotnet build InfiniteEnergy.csproj \
+            --configuration Release \
+            /p:GameDir="/var/mnt/data/SteamLibrary/steamapps/common/REPO/"

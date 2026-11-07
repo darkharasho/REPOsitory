@@ -30,6 +30,10 @@ jobs:
           name="$(python3 -c "import json; print(json.load(open('$manifest'))['name'])")"
           echo "MOD=$mod" >> "$GITHUB_ENV"
           echo "ZIP=builds/$name-$version.zip" >> "$GITHUB_ENV"
+          # First upload of a new mod needs categories: mods/<mod>/thunderstore-categories (a,b,c).
+          if [ -f "mods/$mod/thunderstore-categories" ]; then
+            echo "CATEGORIES=$(tr -d '[:space:]' < "mods/$mod/thunderstore-categories")" >> "$GITHUB_ENV"
+          fi
 
       - name: Build and package
         working-directory: mods/${{ env.MOD }}
@@ -40,7 +44,7 @@ jobs:
       - name: Publish to Thunderstore
         env:
           THUNDERSTORE_TOKEN: ${{ secrets.THUNDERSTORE_TOKEN }}
-        run: scripts/thunderstore-publish.sh "$ZIP" --community repo
+        run: scripts/thunderstore-publish.sh "$ZIP" --community repo ${CATEGORIES:+--categories "$CATEGORIES"}
 
       - uses: actions/upload-artifact@v4
         with:
