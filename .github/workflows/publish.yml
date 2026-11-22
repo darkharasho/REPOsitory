@@ -59,7 +59,8 @@ jobs:
           echo "MOD=$mod" >> "$GITHUB_ENV"
           echo "VERSION=$version" >> "$GITHUB_ENV"
           echo "TITLE=$name $version" >> "$GITHUB_ENV"
-          echo "ZIP=builds/$name-$version.zip" >> "$GITHUB_ENV"
+          # Not ZIP: zip reads $ZIP as extra command-line options.
+          echo "PKG_ZIP=builds/$name-$version.zip" >> "$GITHUB_ENV"
           # First upload of a new mod needs categories: mods/<mod>/thunderstore-categories (a,b,c).
           if [ -f "mods/$mod/thunderstore-categories" ]; then
             echo "CATEGORIES=$(tr -d '[:space:]' < "mods/$mod/thunderstore-categories")" >> "$GITHUB_ENV"
@@ -75,18 +76,17 @@ jobs:
         env:
           # package.sh needs a game path; with no game there, the build falls back to lib/refs.
           GAME_DIR: /no-game-install
-        # Older package.sh versions don't create builds/.
-        run: mkdir -p ../../builds && ./package.sh
+        run: ./package.sh
 
       - name: Publish to Thunderstore
         env:
           THUNDERSTORE_TOKEN: ${{ secrets.THUNDERSTORE_TOKEN }}
-        run: scripts/thunderstore-publish.sh "$ZIP" --community repo ${CATEGORIES:+--categories "$CATEGORIES"}
+        run: scripts/thunderstore-publish.sh "$PKG_ZIP" --community repo ${CATEGORIES:+--categories "$CATEGORIES"}
 
       - name: Release notes from CHANGELOG
         run: |
           awk -v v="## $VERSION" '$0==v{f=1;next} /^## /{f=0} f' "mods/$MOD/CHANGELOG.md" > release-notes.md
-          printf '\nInstall `%s` with a mod manager (it is a Thunderstore package).\n' "$(basename "$ZIP")" >> release-notes.md
+          printf '\nInstall `%s` with a mod manager (it is a Thunderstore package).\n' "$(basename "$PKG_ZIP")" >> release-notes.md
 
       - name: GitHub release
         uses: softprops/action-gh-release@v2
@@ -94,9 +94,9 @@ jobs:
           tag_name: ${{ env.TAG }}
           name: ${{ env.TITLE }}
           body_path: release-notes.md
-          files: ${{ env.ZIP }}
+          files: ${{ env.PKG_ZIP }}
 
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ env.TAG }}
-          path: ${{ env.ZIP }}
+          path: ${{ env.PKG_ZIP }}
