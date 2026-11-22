@@ -75,7 +75,8 @@ jobs:
         env:
           # package.sh needs a game path; with no game there, the build falls back to lib/refs.
           GAME_DIR: /no-game-install
-        run: ./package.sh
+        # Older package.sh versions don't create builds/.
+        run: mkdir -p ../../builds && ./package.sh
 
       - name: Publish to Thunderstore
         env:
