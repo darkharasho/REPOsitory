@@ -26,12 +26,12 @@ jobs:
         with:
           ref: ${{ inputs.tag || github.ref }}
 
-      # Tags cut before lib/refs existed build with this workflow commit's reference assemblies.
+      # Tags cut before this setup existed use this workflow commit's reference assemblies and publish script.
       - name: Reference assemblies
         if: github.event_name == 'workflow_dispatch'
         run: |
           git fetch --depth=1 origin "$GITHUB_SHA"
-          git checkout "$GITHUB_SHA" -- lib/refs Directory.Build.targets
+          git checkout "$GITHUB_SHA" -- lib/refs Directory.Build.targets scripts/thunderstore-publish.sh
 
       # Mods target netstandard2.1; the test projects target net6.0 and net10.0; tcli needs 8.0.
       - uses: actions/setup-dotnet@v4
