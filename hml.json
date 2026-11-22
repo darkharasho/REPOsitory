@@ -6,23 +6,183 @@
       "id": "full-heal",
       "name": "FullHeal",
       "description": "A FullHealth replacement: restores health at the start of each level and on revival. Same config, but heals on the main thread so it no longer freezes the game.",
-      "games": ["repo"],
+      "games": [
+        "repo"
+      ],
       "tagPrefix": "full-heal",
       "assetPattern": "FullHeal-{version}.zip",
       "icon": "mods/full-heal/icon.png",
       "readme": "mods/full-heal/README.md",
-      "dependencies": ["BepInEx-BepInExPack-5.4.2100"]
+      "dependencies": [
+        "BepInEx-BepInExPack-5.4.2100"
+      ]
     },
     {
       "id": "infinite-energy",
       "name": "InfiniteEnergy",
       "description": "Infinite battery/energy for weapons and items.",
-      "games": ["repo"],
+      "games": [
+        "repo"
+      ],
       "tagPrefix": "infinite-energy",
       "assetPattern": "InfiniteEnergy-{version}.zip",
       "icon": "mods/infinite-energy/icon.png",
       "readme": "mods/infinite-energy/README.md",
-      "dependencies": ["BepInEx-BepInExPack-5.4.2100"]
+      "dependencies": [
+        "BepInEx-BepInExPack-5.4.2100"
+      ]
+    },
+    {
+      "id": "chill-shop-keeper",
+      "name": "ChillShopKeeper",
+      "description": "Stops the ShopKeeper from punishing ruckus. Per-player exemptions plus a global kill-switch.",
+      "games": [
+        "repo"
+      ],
+      "tagPrefix": "chill-shop-keeper",
+      "assetPattern": "ChillShopKeeper-{version}.zip",
+      "icon": "mods/chill-shop-keeper/icon.png",
+      "readme": "mods/chill-shop-keeper/README.md",
+      "dependencies": [
+        "BepInEx-BepInExPack-5.4.2100"
+      ]
+    },
+    {
+      "id": "condensed-player-list",
+      "name": "CondensedPlayerList",
+      "description": "Condenses the lobby and ESC-menu player list into tighter single-column rows so large player groups fit on screen without running off the edge.",
+      "games": [
+        "repo"
+      ],
+      "tagPrefix": "condensed-player-list",
+      "assetPattern": "CondensedPlayerList-{version}.zip",
+      "icon": "mods/condensed-player-list/icon.png",
+      "readme": "mods/condensed-player-list/README.md",
+      "dependencies": [
+        "BepInEx-BepInExPack-5.4.2100"
+      ]
+    },
+    {
+      "id": "faerie-flight",
+      "name": "FaerieFlight",
+      "description": "Everyone sprouts wings and floats — a permanent Zero Gravity Staff effect for all players during levels. Tumble weightlessly, steer through the air, flashlight stays lit.",
+      "games": [
+        "repo"
+      ],
+      "tagPrefix": "faerie-flight",
+      "assetPattern": "FaerieFlight-{version}.zip",
+      "icon": "mods/faerie-flight/icon.png",
+      "readme": "mods/faerie-flight/README.md",
+      "dependencies": [
+        "BepInEx-BepInExPack-5.4.2100"
+      ]
+    },
+    {
+      "id": "forced-friendship",
+      "name": "ForcedFriendship",
+      "description": "Take damage over time when you're not within a configurable distance of another player; the farther away you are, the faster the damage ticks.",
+      "games": [
+        "repo"
+      ],
+      "tagPrefix": "forced-friendship",
+      "assetPattern": "ForcedFriendship-{version}.zip",
+      "icon": "mods/forced-friendship/icon.png",
+      "readme": "mods/forced-friendship/README.md",
+      "dependencies": [
+        "BepInEx-BepInExPack-5.4.2100"
+      ]
+    },
+    {
+      "id": "mini-eepo",
+      "name": "MiniEepo",
+      "description": "Shrinks all players, items, and valuables to 40% size. Everyone starts the round tiny.",
+      "games": [
+        "repo"
+      ],
+      "tagPrefix": "mini-eepo",
+      "assetPattern": "MiniEepo-{version}.zip",
+      "icon": "mods/mini-eepo/icon.png",
+      "readme": "mods/mini-eepo/README.md",
+      "dependencies": [
+        "BepInEx-BepInExPack-5.4.2100",
+        "Vippy-ScalerCore-0.4.3"
+      ]
+    },
+    {
+      "id": "modded-purchase-keeper",
+      "name": "ModdedPurchaseKeeper",
+      "description": "Fixes REPOLib-registered (modded) shop items being bought but not appearing in the level. Preserves modded purchase counts across REPOLib's per-level item re-registration.",
+      "games": [
+        "repo"
+      ],
+      "tagPrefix": "modded-purchase-keeper",
+      "assetPattern": "ModdedPurchaseKeeper-{version}.zip",
+      "icon": "mods/modded-purchase-keeper/icon.png",
+      "readme": "mods/modded-purchase-keeper/README.md",
+      "dependencies": [
+        "BepInEx-BepInExPack-5.4.2100",
+        "Zehs-REPOLib-2.1.0"
+      ]
+    },
+    {
+      "id": "museum-gambling",
+      "name": "MuseumGambling",
+      "description": "Gamble at the Museum Head - clicking it deals 100 damage with a configurable chance to win 50,000 cash.",
+      "games": [
+        "repo"
+      ],
+      "tagPrefix": "museum-gambling",
+      "assetPattern": "MuseumGambling-{version}.zip",
+      "icon": "mods/museum-gambling/icon.png",
+      "readme": "mods/museum-gambling/README.md",
+      "dependencies": [
+        "BepInEx-BepInExPack-5.4.2100"
+      ]
+    },
+    {
+      "id": "overstaffed",
+      "name": "Overstaffed",
+      "description": "Raises R.E.P.O.'s max player count above 6. Configurable up to 20.",
+      "games": [
+        "repo"
+      ],
+      "tagPrefix": "overstaffed",
+      "assetPattern": "Overstaffed-{version}.zip",
+      "icon": "mods/overstaffed/icon.png",
+      "readme": "mods/overstaffed/README.md",
+      "dependencies": [
+        "BepInEx-BepInExPack-5.4.2100"
+      ]
+    },
+    {
+      "id": "unchained-indestructibles",
+      "name": "UnchainedIndestructibles",
+      "description": "Removes the hard cap on Indestructible Drones so you can stock and carry as many as you want.",
+      "games": [
+        "repo"
+      ],
+      "tagPrefix": "unchained-indestructibles",
+      "assetPattern": "UnchainedIndestructibles-{version}.zip",
+      "icon": "mods/unchained-indestructibles/icon.png",
+      "readme": "mods/unchained-indestructibles/README.md",
+      "dependencies": [
+        "BepInEx-BepInExPack-5.4.2100"
+      ]
+    },
+    {
+      "id": "upgrade-limiter",
+      "name": "UpgradeLimiter",
+      "description": "Caps how many of each player upgrade can be stacked. Configurable per upgrade.",
+      "games": [
+        "repo"
+      ],
+      "tagPrefix": "upgrade-limiter",
+      "assetPattern": "UpgradeLimiter-{version}.zip",
+      "icon": "mods/upgrade-limiter/icon.png",
+      "readme": "mods/upgrade-limiter/README.md",
+      "dependencies": [
+        "BepInEx-BepInExPack-5.4.2100"
+      ]
     }
   ]
 }
