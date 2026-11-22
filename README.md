@@ -49,4 +49,6 @@ Bump `version_number` in the mod's `manifest.json`, commit, then tag `<mod-dir>-
 git tag upgrade-limiter-v0.4.4 && git push origin upgrade-limiter-v0.4.4
 ```
 
-`.github/workflows/publish.yml` builds that mod on the self-hosted runner and publishes it to Thunderstore with `scripts/thunderstore-publish.sh`, using the `THUNDERSTORE_TOKEN` repo secret. It keeps the categories the package already has on Thunderstore and skips versions that are already published. A brand-new mod's first upload needs categories: put them comma-separated in `mods/<mod-dir>/thunderstore-categories` (e.g. `ai-generated,serverside,items`) and the workflow passes them on.
+`.github/workflows/publish.yml` builds that mod on GitHub's runners and publishes it to Thunderstore with `scripts/thunderstore-publish.sh`, using the `THUNDERSTORE_TOKEN` repo secret. It keeps the categories the package already has on Thunderstore and skips versions that are already published. A brand-new mod's first upload needs categories: put them comma-separated in `mods/<mod-dir>/thunderstore-categories` (e.g. `ai-generated,serverside,items`) and the workflow passes them on.
+
+The game isn't installed on GitHub's runners, so builds there compile against the reference assemblies in `lib/refs` (public API only, no game code). After a game update changes an API a mod uses, run `scripts/update-refs.sh` and commit `lib/refs`. Local builds keep using your game install; pass `-p:UseRefs=true` to build the way CI does.

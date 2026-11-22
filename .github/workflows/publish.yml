@@ -1,32 +1,58 @@
 name: Publish
 
 # Tag a mod release as <mod-dir>-v<version>, e.g. upgrade-limiter-v0.4.4. The version must match
-# mods/<mod-dir>/manifest.json. Builds on the self-hosted runner (which has the game install)
-# and publishes the zip to Thunderstore, keeping the categories the package already has there.
+# mods/<mod-dir>/manifest.json. Builds on GitHub's runners against the reference assemblies in
+# lib/refs (scripts/update-refs.sh) and publishes the zip to Thunderstore, keeping the categories
+# the package already has there. Run it by hand with a tag to publish a tag that already exists.
 on:
   push:
     tags: ["*-v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to publish, e.g. full-heal-v1.0.0
+        required: true
+
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
   publish:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      # Tags cut before lib/refs existed build with this workflow commit's reference assemblies.
+      - name: Reference assemblies
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          git fetch --depth=1 origin "$GITHUB_SHA"
+          git checkout "$GITHUB_SHA" -- lib/refs Directory.Build.targets
+
+      # Mods target netstandard2.1; the test projects target net6.0 and net10.0; tcli needs 8.0.
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            6.0.x
+            8.0.x
+            10.0.x
 
       - name: Resolve mod and version from tag
         run: |
-          mod="${GITHUB_REF_NAME%-v*}"
-          version="${GITHUB_REF_NAME##*-v}"
+          mod="${TAG%-v*}"
+          version="${TAG##*-v}"
           manifest="mods/$mod/manifest.json"
           if [ ! -f "$manifest" ]; then
-            echo "::error::Tag $GITHUB_REF_NAME: no $manifest"
+            echo "::error::Tag $TAG: no $manifest"
             exit 1
           fi
           manifest_version="$(python3 -c "import json; print(json.load(open('$manifest'))['version_number'])")"
           if [ "$manifest_version" != "$version" ]; then
-            echo "::error::Tag $GITHUB_REF_NAME does not match $manifest version $manifest_version"
+            echo "::error::Tag $TAG does not match $manifest version $manifest_version"
             exit 1
           fi
           name="$(python3 -c "import json; print(json.load(open('$manifest'))['name'])")"
@@ -39,10 +65,16 @@ jobs:
             echo "CATEGORIES=$(tr -d '[:space:]' < "mods/$mod/thunderstore-categories")" >> "$GITHUB_ENV"
           fi
 
+      - name: Test
+        run: |
+          shopt -s nullglob
+          for t in "mods/$MOD"/tests/*/; do dotnet test "$t"; done
+
       - name: Build and package
         working-directory: mods/${{ env.MOD }}
         env:
-          GAME_DIR: /var/mnt/data/SteamLibrary/steamapps/common/REPO
+          # package.sh needs a game path; with no game there, the build falls back to lib/refs.
+          GAME_DIR: /no-game-install
         run: ./package.sh
 
       - name: Publish to Thunderstore
@@ -58,11 +90,12 @@ jobs:
       - name: GitHub release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ env.TAG }}
           name: ${{ env.TITLE }}
           body_path: release-notes.md
           files: ${{ env.ZIP }}
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ github.ref_name }}
+          name: ${{ env.TAG }}
           path: ${{ env.ZIP }}

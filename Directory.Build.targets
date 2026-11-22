@@ -1,0 +1,7 @@
+<Project>
+  <!-- Without the game installed (CI), or with -p:UseRefs=true, every mod builds against the
+       reference assemblies in lib/refs (regenerate them with scripts/update-refs.sh). -->
+  <PropertyGroup Condition="'$(UseRefs)' == 'true' Or !Exists('$(ManagedDir)/Assembly-CSharp.dll')">
+    <ManagedDir>$(MSBuildThisFileDirectory)lib/refs</ManagedDir>
+  </PropertyGroup>
+</Project>
