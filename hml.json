@@ -1,0 +1,28 @@
+{
+  "$schema": "https://hml-share.project96.workers.dev/v1/catalog/schema.json",
+  "schema": 1,
+  "mods": [
+    {
+      "id": "full-heal",
+      "name": "FullHeal",
+      "description": "A FullHealth replacement: restores health at the start of each level and on revival. Same config, but heals on the main thread so it no longer freezes the game.",
+      "games": ["repo"],
+      "tagPrefix": "full-heal",
+      "assetPattern": "FullHeal-{version}.zip",
+      "icon": "mods/full-heal/icon.png",
+      "readme": "mods/full-heal/README.md",
+      "dependencies": ["BepInEx-BepInExPack-5.4.2100"]
+    },
+    {
+      "id": "infinite-energy",
+      "name": "InfiniteEnergy",
+      "description": "Infinite battery/energy for weapons and items.",
+      "games": ["repo"],
+      "tagPrefix": "infinite-energy",
+      "assetPattern": "InfiniteEnergy-{version}.zip",
+      "icon": "mods/infinite-energy/icon.png",
+      "readme": "mods/infinite-energy/README.md",
+      "dependencies": ["BepInEx-BepInExPack-5.4.2100"]
+    }
+  ]
+}
